@@ -3,11 +3,11 @@
 {- |
    Module      : Text.Pandoc.Writers.Org
    Copyright   : © 2010-2015 Puneeth Chaganti <punchagan@gmail.com>
-                   2010-2023 John MacFarlane <jgm@berkeley.edu>
-                   2016-2023 Albert Krewinkel <tarleb+pandoc@moltkeplatz.de>
+                   2010-2024 John MacFarlane <jgm@berkeley.edu>
+                   2016-2024 Albert Krewinkel <albert+pandoc@tarleb.com>
    License     : GNU GPL, version 2 or above
 
-   Maintainer  : Albert Krewinkel <tarleb+pandoc@moltkeplatz.de>
+   Maintainer  : Albert Krewinkel <albert+pandoc@tarleb.com>
    Stability   : alpha
    Portability : portable
 

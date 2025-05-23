@@ -9,23 +9,17 @@ packages:
 - 'pandoc-lua-engine'
 - 'pandoc-server'
 extra-deps:
-- lpeg-1.1.0
-- commonmark-0.2.5.1
-- commonmark-extensions-0.2.5.3
-- commonmark-pandoc-0.2.2.1
-- typst-0.5.0.1
-- tls-2.0.1
-- skylighting-format-blaze-html-0.1.1.2
-- djot-0.1.1.1
-- zip-archive-0.4.3.1
-- git: https://github.com/jgm/texmath
-  commit: 85d7c9aaa19c9cc5f53f1cd56384cf89bef83ca4
-- git: https://github.com/jgm/doclayout
-  commit: af6563972de73ead9f37de44ccca1c86b09a7cec
-
+- tls-2.1.7
+- skylighting-core-0.14.6
+- skylighting-0.14.6
+- skylighting-format-typst-0.1
+- typst-symbols-0.1.8.1
+- texmath-0.12.10.2
+- citeproc-0.9.0.1
+- typst-0.8
 ghc-options:
    "$locals": -fhide-source-paths -Wno-missing-home-modules
-resolver: lts-22.11
+resolver: lts-23.22
 nix:
   packages:
   - pkg-config

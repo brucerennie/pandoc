@@ -2,6 +2,7 @@
 module Text.Pandoc.Readers.LaTeX.Math
   ( dollarsMath
   , inlineEnvironments
+  , inlineEnvironmentNames
   , inlineEnvironment
   , mathInline
   , mathDisplay
@@ -70,7 +71,6 @@ mathEnvWith f innerEnv name = f . mathDisplay . inner <$> mathEnv name
 
 mathEnv :: PandocMonad m => Text -> LP m Text
 mathEnv name = do
-  skipopts
   optional blankline
   res <- manyTill anyTok (end_ name)
   return $ stripTrailingNewlines $ untokenize res
@@ -80,6 +80,10 @@ inlineEnvironment = try $ do
   controlSeq "begin"
   name <- untokenize <$> braced
   M.findWithDefault mzero name inlineEnvironments
+
+inlineEnvironmentNames :: [Text]
+inlineEnvironmentNames =
+  M.keys (inlineEnvironments :: M.Map Text (LP PandocPure Inlines))
 
 inlineEnvironments :: PandocMonad m => M.Map Text (LP m Inlines)
 inlineEnvironments = M.fromList [
@@ -97,6 +101,8 @@ inlineEnvironments = M.fromList [
   , ("align*", mathEnvWith id (Just "aligned") "align*")
   , ("alignat", mathEnvWith id (Just "aligned") "alignat")
   , ("alignat*", mathEnvWith id (Just "aligned") "alignat*")
+  , ("flalign", mathEnvWith id (Just "aligned") "flalign")
+  , ("flalign*", mathEnvWith id (Just "aligned") "flalign*")
   , ("dmath", mathEnvWith id Nothing "dmath")
   , ("dmath*", mathEnvWith id Nothing "dmath*")
   , ("dgroup", mathEnvWith id (Just "aligned") "dgroup")

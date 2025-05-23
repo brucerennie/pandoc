@@ -118,7 +118,7 @@ to `odt`.  (You can, however, customize margin size using `--reference-doc`.)
 So before submitting a bug report, consider whether it might be
 "out of scope." If it concerns a feature of documents that isn't
 representable in pandoc's Markdown, then it very likely is.
-(If in doubt, you can always ask on the [discussion-forum].)
+(If in doubt, you can always ask on the [discussion forum].)
 
 Fixing bugs from the issue tracker
 ----------------------------------
@@ -421,6 +421,29 @@ The library is structured as follows:
     identifiers that use accented characters.
   - `Text.Pandoc.UUID` contains functions for generating UUIDs.
   - `Text.Pandoc.XML` contains functions for formatting XML.
+
+Adding a new command-line option
+--------------------------------
+
+To add a new command-line option, you'll need to make changes in several
+places:
+
+- `MANUAL.txt` -- documentation for new option, both in the list
+  of options and in the section on defaults files.
+- `Text.Pandoc.App.Opt` -- new constructor for Opt and default
+  value
+- `Text.Pandoc.App.CommandLineOptions` -- the option parser
+- `Text.Pandoc.App` or `Text.Pandoc.App.OutputSettings` --
+  handle the new option
+- possibly in pandoc-server: `Text.Pandoc.Server` -- handle the
+  new option
+
+If your change requires a new field for ReaderOptions or
+WriterOptions, you'll also need to
+
+- `Text.Pandoc.Options` -- type change and default value
+- in pandoc-lua-engine: Text.Pandoc.Lua.Marshal.WriterOptions
+  and/or Text.Pandoc.Lua.Marshal.ReaderOptions
 
 Lua filters
 -----------

@@ -2,7 +2,7 @@
 {- |
    Module      : Text.Pandoc.Readers.Docx.Util
    Copyright   : © 2014-2020 Jesse Rosenthal <jrosenthal@jhu.edu>,
-                   2014-2023 John MacFarlane <jgm@berkeley.edu>,
+                   2014-2024 John MacFarlane <jgm@berkeley.edu>,
                    2015 Nikolay Yakimov <root@livid.pp.ru>
    License     : GNU GPL, version 2 or above
 
@@ -79,13 +79,7 @@ extractChildren el condition
   | otherwise = Just (modifiedElement, removedChildren)  -- Children removed, return Just
   where
     -- Separate the children based on the condition
-    (removedChildren, keptChildren) = partition condition (onlyElems' $ elContent el)
-
-    -- Helper function to filter only Element types from Content
-    onlyElems' :: [Content] -> [Element]
-    onlyElems' = foldr (\c acc -> case c of
-                                   Elem e -> e : acc
-                                   _      -> acc) []
+    (removedChildren, keptChildren) = partition condition (onlyElems $ elContent el)
 
     -- Reconstruct the element with the kept children
     modifiedElement = el { elContent = map Elem keptChildren }

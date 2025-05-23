@@ -2,10 +2,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {- |
    Module      : Text.Pandoc.Readers.Org.Inlines
-   Copyright   : Copyright (C) 2014-2023 Albert Krewinkel
+   Copyright   : Copyright (C) 2014-2024 Albert Krewinkel
    License     : GNU GPL, version 2 or above
 
-   Maintainer  : Albert Krewinkel <tarleb+pandoc@moltkeplatz.de>
+   Maintainer  : Albert Krewinkel <albert+pandoc@tarleb.com>
 
 Parsers for Org-mode inline elements.
 -}
@@ -635,11 +635,11 @@ emphasisBetween c = try $ do
 verbatimBetween :: PandocMonad m
                 => Char
                 -> OrgParser m Text
-verbatimBetween c = try $
-  emphasisStart c *>
-  many1TillNOrLessNewlines 1 verbatimChar (emphasisEnd c)
+verbatimBetween c = newlinesToSpaces <$>
+  try (emphasisStart c *> many1TillNOrLessNewlines 1 verbatimChar (emphasisEnd c))
  where
    verbatimChar = noneOf "\n\r" >>= updatePositions
+   newlinesToSpaces = T.map (\d -> if d == '\n' then ' ' else d)
 
 -- | Parses a raw string delimited by @c@ using Org's math rules
 mathTextBetween :: PandocMonad m
@@ -808,16 +808,20 @@ inlineLaTeX = try $ do
   allowEntities <- getExportSetting exportWithEntities
   ils <- parseAsInlineLaTeX cmd texOpt
   maybe mzero returnF $
-     parseAsMathMLSym allowEntities cmd `mplus`
-     parseAsMath cmd texOpt `mplus`
-     ils
+    if "\\begin{" `T.isPrefixOf` cmd
+       then ils
+       else parseAsMathMLSym allowEntities cmd `mplus`
+            parseAsMath cmd texOpt `mplus`
+            ils
  where
    parseAsInlineLaTeX :: PandocMonad m
                       => Text -> TeXExport -> OrgParser m (Maybe Inlines)
    parseAsInlineLaTeX cs = \case
-     TeXExport -> maybeRight <$> runParserT inlineCommand state "" (toSources cs)
+     TeXExport -> maybeRight <$> runParserT
+                  (B.rawInline "latex" . snd <$> withRaw inlineCommand)
+                  state "" (toSources cs)
      TeXIgnore -> return (Just mempty)
-     TeXVerbatim -> return (Just $ B.str cs)
+     TeXVerbatim -> return (Just $ B.text cs)
 
    parseAsMathMLSym :: Bool -> Text -> Maybe Inlines
    parseAsMathMLSym allowEntities cs = do

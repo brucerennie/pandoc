@@ -33,7 +33,7 @@ import Text.Pandoc.Definition
 import qualified Text.Pandoc.Builder as B
 import Text.Pandoc.Logging
 import Text.Pandoc.Options
-import Text.DocLayout
+import Text.DocLayout hiding (link)
 import Text.Pandoc.Shared (linesToPara, tshow, blocksToInlines)
 import Text.Pandoc.Templates (renderTemplate)
 import qualified Text.Pandoc.Translations as Term (Term(Figure, Table))
@@ -115,10 +115,6 @@ addTextStyle :: PandocMonad m
 addTextStyle attrs i = modify $ \s ->
   s { stTextStyles = Map.insert attrs i (stTextStyles s) }
 
-addTextStyleAttr :: PandocMonad m => TextStyle -> OD m ()
-addTextStyleAttr t = modify $ \s ->
-  s { stTextStyleAttr = Set.insert t (stTextStyleAttr s) }
-
 increaseIndent :: PandocMonad m => OD m ()
 increaseIndent = modify $ \s -> s { stIndentPara = 1 + stIndentPara s }
 
@@ -150,13 +146,17 @@ inParagraphTagsWithStyle sty = inTags False "text:p" [("text:style-name", sty)]
 inSpanTags :: Text -> Doc Text -> Doc Text
 inSpanTags s = inTags False "text:span" [("text:style-name",s)]
 
-withTextStyle :: PandocMonad m => TextStyle -> OD m a -> OD m a
-withTextStyle s f = do
+withAlteredTextStyles :: PandocMonad m
+                       => (Set.Set TextStyle -> Set.Set TextStyle) -> OD m a -> OD m a
+withAlteredTextStyles f action = do
   oldTextStyleAttr <- gets stTextStyleAttr
-  addTextStyleAttr s
-  res <- f
+  modify $ \st -> st{ stTextStyleAttr = f oldTextStyleAttr }
+  res <- action
   modify $ \st -> st{ stTextStyleAttr = oldTextStyleAttr }
   return res
+
+withTextStyle :: PandocMonad m => TextStyle -> OD m a -> OD m a
+withTextStyle s = withAlteredTextStyles (Set.insert s)
 
 inTextStyle :: PandocMonad m => Doc Text -> OD m (Doc Text)
 inTextStyle d = do
@@ -305,7 +305,10 @@ orderedItemToOpenDocument  o n bs = vcat <$> mapM go bs
        go b                 = blockToOpenDocument o b
        newLevel a l = do
          nn <- length <$> gets stParaStyles
-         ls <- head   <$> gets stListStyles
+         liststyles <- gets stListStyles
+         let ls = case liststyles of
+                    [] -> (1,[])  -- should never happen
+                    (s:_) -> s
          modify $ \s -> s { stListStyles = orderedListLevelStyle a ls :
                                  drop 1 (stListStyles s) }
          inTagsIndented "text:list" <$> orderedListToOpenDocument o nn l
@@ -396,13 +399,14 @@ blockToOpenDocument o = \case
                 Left msg -> do
                   unless (T.null msg) $ report $ CouldNotHighlight msg
                   unhighlighted s
-    Table a bc s th tb tf -> setFirstPara >> table (Ann.toTable a bc s th tb tf)
+    Table a bc s th tb tf -> setFirstPara >>
+                              table o (Ann.toTable a bc s th tb tf)
     HorizontalRule   -> setFirstPara >> return (selfClosingTag "text:p"
                          [ ("text:style-name", "Horizontal_20_Line") ])
     b@(RawBlock f s) -> if f == Format "opendocument"
                         then return $ text $ T.unpack s
                         else empty <$ report (BlockNotRendered b)
-    Figure a capt b  -> figure a capt b
+    Figure a capt b  -> figure o a capt b
     where
       defList       b = do setInDefinitionList True
                            r <- vcat  <$> mapM (deflistItemToOpenDocument o) b
@@ -427,8 +431,9 @@ blockToOpenDocument o = \case
       orderedList a b = do (ln,pn) <- newOrderedListStyle (isTightList b) a
                            inTags True "text:list" [ ("text:style-name", "L" <> tshow ln)]
                                       <$> orderedListToOpenDocument o pn b
-      table :: PandocMonad m => Ann.Table -> OD m (Doc Text)
-      table (Ann.Table (ident, _, _) (Caption _ c) colspecs thead tbodies _) = do
+      table :: PandocMonad m => WriterOptions -> Ann.Table -> OD m (Doc Text)
+      table opts
+          (Ann.Table (ident, _, _) (Caption _ c) colspecs thead tbodies _) = do
         tn <- length <$> gets stTableStyles
         pn <- length <$> gets stParaStyles
         let  genIds      = map chr [65..]
@@ -458,8 +463,11 @@ blockToOpenDocument o = \case
                             ("table:name"      , name)
                           , ("table:style-name", name)
                           ] (vcat columns $$ th $$ vcat tr)
-        return $ captionDoc $$ tableDoc
-      figure (ident, _, _) (Caption _ longcapt) body =
+        return $
+          case writerTableCaptionPosition opts of
+            CaptionAbove -> captionDoc $$ tableDoc
+            CaptionBelow -> tableDoc $$ captionDoc
+      figure opts (ident, _, _) (Caption _ longcapt) body =
         case blocksToInlines longcapt of
           [] ->
             withParagraphStyle o "Figure" body
@@ -470,7 +478,10 @@ blockToOpenDocument o = \case
                           if isEnabled Ext_native_numbering o
                           then numberedFigureCaption ident
                           else unNumberedCaption "FigureCaption"
-            return $ imageDoc $$ captionDoc
+            return $
+              case writerFigureCaptionPosition opts of
+                CaptionAbove -> captionDoc $$ imageDoc
+                CaptionBelow -> imageDoc $$ captionDoc
 
 
 numberedTableCaption :: PandocMonad m => Text -> Doc Text -> OD m (Doc Text)
@@ -660,8 +671,12 @@ inlineToOpenDocument o ils
                                                  , ("xlink:show"   , "embed" )
                                                  , ("xlink:actuate", "onLoad")]
       mkSpan attr xs =  do
-        let (ident,_,_) = attr
-            i = withLangFromAttr attr (inlinesToOpenDocument o xs)
+        let (ident,_,kvs) = attr
+            i = maybe id (\sty ->
+                           fmap (inTags False "text:span"
+                                  [ ("text:style-name", sty) ]))
+                  (lookup "custom-style" kvs) .
+                 withLangFromAttr attr $ inlinesToOpenDocument o xs
             mkBookmarkedSpan b =
               if isEmpty b
                 then selfClosingBookmark ident
@@ -676,7 +691,8 @@ inlineToOpenDocument o ils
                          , ("text:note-class", "footnote"     )] $
                          inTagsSimple "text:note-citation" (text . show $ n + 1) <>
                          inTagsSimple "text:note-body" t
-        nn <- footNote <$> withParagraphStyle o "Footnote" l
+        nn <- footNote <$> withAlteredTextStyles (const mempty)
+                            (withParagraphStyle o "Footnote" l)
         addNote nn
         return nn
 

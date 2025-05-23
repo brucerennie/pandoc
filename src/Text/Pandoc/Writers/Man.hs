@@ -3,7 +3,7 @@
 {-# LANGUAGE ViewPatterns      #-}
 {- |
    Module      : Text.Pandoc.Writers.Man
-   Copyright   : Copyright (C) 2007-2023 John MacFarlane
+   Copyright   : Copyright (C) 2007-2024 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -86,9 +86,9 @@ pandocToMan opts (Pandoc meta blocks) = do
        Just tpl -> renderTemplate tpl context
 
 escString :: WriterOptions -> Text -> Text
-escString opts = escapeString (if writerPreferAscii opts
-                                  then AsciiOnly
-                                  else AllowUTF8)
+escString opts = escapeString True (if writerPreferAscii opts
+                                       then AsciiOnly
+                                       else AllowUTF8)
 
 -- | Return man representation of notes.
 notesToMan :: PandocMonad m => WriterOptions -> [[Block]] -> StateT WriterState m (Doc Text)
@@ -200,7 +200,7 @@ bulletListItemToMan opts (Para first:rest) =
 bulletListItemToMan opts (Plain first:rest) = do
   first' <- blockToMan opts (Plain first)
   rest' <- blockListToMan opts rest
-  let first'' = literal ".IP \\[bu] 2" $$ first'
+  let first'' = literal ".IP \\(bu 2" $$ first'
   let rest''  = if null rest
                    then empty
                    else literal ".RS 2" $$ rest' $$ literal ".RE"
@@ -208,7 +208,7 @@ bulletListItemToMan opts (Plain first:rest) = do
 bulletListItemToMan opts (first:rest) = do
   first' <- blockToMan opts first
   rest' <- blockListToMan opts rest
-  return $ literal "\\[bu] .RS 2" $$ first' $$ rest' $$ literal ".RE"
+  return $ literal "\\(bu .RS 2" $$ first' $$ rest' $$ literal ".RE"
 
 -- | Convert ordered list item (a list of blocks) to man.
 orderedListItemToMan :: PandocMonad m
@@ -299,7 +299,7 @@ inlineToMan opts (Quoted SingleQuote lst) = do
   return $ char '`' <> contents <> char '\''
 inlineToMan opts (Quoted DoubleQuote lst) = do
   contents <- inlineListToMan opts lst
-  return $ literal "\\[lq]" <> contents <> literal "\\[rq]"
+  return $ literal "\\(lq" <> contents <> literal "\\(rq"
 inlineToMan opts (Cite _ lst) =
   inlineListToMan opts lst
 inlineToMan opts (Code _ str) =

@@ -206,7 +206,7 @@ writeBibtexString opts variant mblang ref =
 
   renderName name =
     case nameLiteral name of
-      Just t  -> B.text t
+      Just t  -> B.spanWith ("",[],[]) $ B.text t
       Nothing -> spacedMaybes
                   [ nameNonDroppingParticle name
                   , nameFamily name
@@ -394,7 +394,8 @@ itemToReference locale variant item = do
                   <|> return Nothing
     modify $ \s -> s{ untitlecase = untitlecase s &&
                                       case hyphenation of
-                                        Just x -> "en-" `T.isPrefixOf` x
+                                        Just x ->
+                                          "en-" `T.isPrefixOf` x || x == "en"
                                         _ -> True }
 
 

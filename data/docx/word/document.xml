@@ -321,6 +321,10 @@ xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing
         <w:t xml:space="preserve">Definition</w:t>
       </w:r>
     </w:p>
-    <w:sectPr />
+    <w:sectPr>
+      <w:footnotePr>
+        <w:numRestart w:val="eachSect" />
+      </w:footnotePr>
+    </w:sectPr>
   </w:body>
 </w:document>

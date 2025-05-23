@@ -1,10 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {- |
    Module      : Tests.Readers.Org.Inline
-   Copyright   : © 2014-2023 Albert Krewinkel
+   Copyright   : © 2014-2024 Albert Krewinkel
    License     : GNU GPL, version 2 or above
 
-   Maintainer  : Albert Krewinkel <albert@zeitkraut.de>
+   Maintainer  : Albert Krewinkel <albert+pandoc@tarleb.com>
    Stability   : alpha
    Portability : portable
 
@@ -342,7 +342,7 @@ tests =
 
   , "Inline LaTeX command with spaces" =:
       "\\emph{Emphasis mine}" =?>
-      para (emph "Emphasis mine")
+      para (rawInline "latex" "\\emph{Emphasis mine}")
 
   , "Inline math symbols" =:
       "\\tau \\oplus \\alpha" =?>

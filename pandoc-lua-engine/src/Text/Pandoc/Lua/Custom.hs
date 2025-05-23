@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeApplications    #-}
 {- |
    Module      : Text.Pandoc.Lua.Custom
-   Copyright   : © 2021-2023 Albert Krewinkel, John MacFarlane
+   Copyright   : © 2021-2024 Albert Krewinkel, John MacFarlane
    License     : GPL-2.0-or-later
    Maintainer  : Albert Krewinkel <albert+pandoc@tarleb.com>
 
@@ -18,11 +18,11 @@ import HsLua as Lua hiding (Operation (Div))
 import Text.Pandoc.Class (PandocMonad, findFileWithDataFallback)
 import Text.Pandoc.Error (PandocError)
 import Text.Pandoc.Lua.Global (Global (..), setGlobals)
-import Text.Pandoc.Lua.Init (runLuaWith)
 import Text.Pandoc.Lua.Marshal.Format (peekExtensionsConfig)
 import Text.Pandoc.Lua.Marshal.Pandoc (peekPandoc)
 import Text.Pandoc.Lua.Marshal.WriterOptions (pushWriterOptions)
 import Text.Pandoc.Lua.PandocLua (unPandocLua)
+import Text.Pandoc.Lua.Run (runLuaWith)
 import Text.Pandoc.Readers (Reader (..))
 import Text.Pandoc.Sources (ToSources(..))
 import Text.Pandoc.Scripting (CustomComponents (..))

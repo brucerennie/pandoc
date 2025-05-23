@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {- |
    Module      : Text.Pandoc.Readers.CommonMark
-   Copyright   : Copyright (C) 2015-2023 John MacFarlane
+   Copyright   : Copyright (C) 2015-2024 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -71,7 +71,8 @@ readCommonMark opts s
     readCommonMarkBody opts sources toks
 
 makeFigures :: Block -> Block
-makeFigures (Para [Image (ident,classes,kvs) alt (src,tit)]) =
+makeFigures (Para [Image (ident,classes,kvs) alt (src,tit)])
+  | not (null alt) =
   Figure (ident,[],[])
     (Caption Nothing [Plain alt])
     [Plain [Image ("",classes,kvs) alt (src,tit)]]
@@ -119,8 +120,10 @@ handleGfmMath (CodeBlock ("",["math"],[]) raw) = Para [Math DisplayMath raw]
 handleGfmMath x = walk handleGfmMathInline x
 
 handleGfmMathInline :: Inline -> Inline
-handleGfmMathInline (Math InlineMath math') =
-  let (ticks, rest) = T.span (== '`') math'
+handleGfmMathInline (Math InlineMath math'') =
+  let math' = T.replace "\\\\{" "\\{" . T.replace "\\\\}" "\\}" $ math''
+              -- see #10631
+      (ticks, rest) = T.span (== '`') math'
   in  if T.null ticks
          then Math InlineMath math'
          else case T.stripSuffix ticks rest of

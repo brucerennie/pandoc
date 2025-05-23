@@ -7,7 +7,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {- |
    Module      : Text.Pandoc.Chunks
-   Copyright   : Copyright (C) 2022-2023 John MacFarlane
+   Copyright   : Copyright (C) 2022-2024 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -99,7 +99,7 @@ addUp (c:cs) = c : addUp cs
 addUp [] = []
 
 addNext :: [Chunk] -> [Chunk]
-addNext cs = zipWith go cs (map Just (tail cs) ++ [Nothing])
+addNext cs = zipWith go cs (map Just (drop 1 cs) ++ [Nothing])
  where
   go c nxt = c{ chunkNext = nxt }
 

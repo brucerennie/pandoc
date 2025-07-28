@@ -400,8 +400,7 @@ blockToMarkdown' opts (Div attrs@(_,classes,_) bs)
                          | (take 3 (T.unpack id')) == "ref"
                            -> contents <> blankline
                          | otherwise -> contents <> blankline
-             | isEnabled Ext_fenced_divs opts &&
-               attrs /= nullAttr ->
+             | isEnabled Ext_fenced_divs opts ->
                   let attrsToMd = if variant == Commonmark
                                   then attrsToMarkdown opts
                                   else classOrAttrsToMarkdown opts
@@ -857,17 +856,18 @@ definitionListItemToMarkdown opts (label, defs) = do
        let tabStop = writerTabStop opts
        variant <- asks envVariant
        let leader  = case variant of
-                        PlainText -> "   "
-                        Markua -> ":"
-                        _ -> ":  "
-       let sps = case writerTabStop opts - 3 of
-                      n | n > 0   -> literal $ T.replicate n " "
-                      _ -> literal " "
+                        PlainText -> " "
+                        _ -> ":"
+       let leadingChars = case tabStop of
+                            -- Always use two leading characters for Markua
+                            n | n >= 2 && variant /= Markua -> n
+                            _ -> 2
+       let sps = literal $ T.replicate (leadingChars - 1) " "
        let isTight = case defs of
                         ((Plain _ : _): _) -> True
                         _                  -> False
        let contents = (if isTight then vcat else vsep) $ map
-                       (\d -> hang tabStop (leader <> sps) $ vcat d)
+                       (\d -> hang leadingChars (leader <> sps) $ vcat d)
                        defs'
        return $ blankline <> nowrap labelText $$
                 (if isTight then empty else blankline) <> contents <> blankline

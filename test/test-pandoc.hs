@@ -1,6 +1,4 @@
-{-# OPTIONS_GHC -Wall #-}
-
-module Main where
+module Main (main) where
 
 import System.Environment (getArgs, getExecutablePath)
 import qualified Control.Exception as E
@@ -52,6 +50,7 @@ import qualified Tests.Writers.RST
 import qualified Tests.Writers.AnnotatedTable
 import qualified Tests.Writers.TEI
 import qualified Tests.Writers.Markua
+import qualified Tests.XML
 import qualified Tests.MediaBag
 import Text.Pandoc.Shared (inDirectory)
 
@@ -61,6 +60,7 @@ tests pandocPath = testGroup "pandoc tests"
         , testGroup "Old" (Tests.Old.tests pandocPath)
         , testGroup "Shared" Tests.Shared.tests
         , testGroup "MediaBag" Tests.MediaBag.tests
+        , testGroup "XML" Tests.XML.tests
         , testGroup "Writers"
           [ testGroup "Native" Tests.Writers.Native.tests
           , testGroup "ConTeXt" Tests.Writers.ConTeXt.tests

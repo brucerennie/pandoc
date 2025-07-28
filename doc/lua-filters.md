@@ -1039,6 +1039,24 @@ equal in Lua if and only if they are equal in Haskell.
 `meta`
 :   document meta information ([Meta] object)
 
+### Methods {#type-pandoc-methods}
+
+#### normalize
+
+`normalize(self)`
+
+Perform a normalization of Pandoc documents. E.g., multiple
+successive spaces are collapsed, and tables are normalized, so
+that all rows and columns contain the same number of cells.
+
+Parameters:
+
+`self`
+:   the element ([Pandoc][])
+
+Results:
+
+-   cloned and normalized document. ([Pandoc][])
 
 ### walk {#type-pandoc:walk}
 
@@ -5295,6 +5313,32 @@ Returns:
 - The filepath up to the last directory separator. (string)
 
 *Since: 2.12*
+
+### exists {#pandoc.path.exists}
+
+`exists (path[, type])`
+
+Check whether there exists a filesystem object at the given path.
+If `type` is given and either *directory* or *file*, then the
+function returns `true` if and only if the file system object has
+the given type, or if it's a symlink pointing to an object of that
+type. Passing *symlink* as type requires the path itself to be a
+symlink. Types other than those will cause an error.
+
+Parameters:
+
+`path`
+:   file path to check (string)
+
+`type`
+:   the required type of the filesystem object (string)
+
+Returns:
+
+- whether a filesystem object of type `type` exists at `path`.
+  (boolean)
+
+*Since: 3.7.1*
 
 ### filename {#pandoc.path.filename}
 

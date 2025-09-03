@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE BangPatterns        #-}
+{-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {- |
    Module      : Text.Pandoc.Writers.Typst
@@ -41,8 +42,9 @@ import Text.DocTemplates (renderTemplate)
 import Text.Pandoc.Extensions (Extension(..))
 import Text.Collate.Lang (Lang(..), parseLang)
 import Text.Printf (printf)
-import Data.Char (isAlphaNum, isDigit)
+import Data.Char (isDigit)
 import Data.Maybe (fromMaybe)
+import Unicode.Char (isXIDContinue)
 
 -- | Convert Pandoc to Typst.
 writeTypst :: PandocMonad m => WriterOptions -> Pandoc -> m Text
@@ -77,9 +79,9 @@ pandocToTypst options (Pandoc meta blocks) = do
   let toPosition :: CaptionPosition -> Text
       toPosition CaptionAbove = "top"
       toPosition CaptionBelow = "bottom"
-  let nociteIds = query (\inln -> case inln of
-                                    Cite cs _ -> map citationId cs
-                                    _         -> [])
+  let nociteIds = query (\case
+                           Cite cs _ -> map citationId cs
+                           _         -> [])
                   $ lookupMetaInlines "nocite" meta
 
   let context = defField "body" main
@@ -109,7 +111,7 @@ pandocToTypst options (Pandoc meta blocks) = do
               $ (if writerNumberSections options
                     then defField "section-numbering" ("1.1.1.1.1" :: Text)
                     else id)
-              $ metadata
+              metadata
   return $ render colwidth $
     case writerTemplate options of
        Nothing  -> main
@@ -120,15 +122,15 @@ pickTypstAttrs = foldr go ([],[])
   where
     go (k,v) =
       case T.splitOn ":" k of
-        "typst":"text":x:[] -> second ((x,v):)
-        "typst":x:[] -> first ((x,v):)
+        ["typst", "text", x] -> second ((x,v):)
+        ["typst", x] -> first ((x,v):)
         _ -> id
 
 formatTypstProp :: (Text, Text) -> Text
 formatTypstProp (k,v) = k <> ": " <> v
 
 toTypstPropsListSep :: [(Text, Text)] -> Doc Text
-toTypstPropsListSep = hsep . intersperse "," . (map $ literal . formatTypstProp)
+toTypstPropsListSep = hsep . intersperse "," . map (literal . formatTypstProp)
 
 toTypstPropsListTerm :: [(Text, Text)] -> Doc Text
 toTypstPropsListTerm [] = ""
@@ -160,12 +162,9 @@ blocksToTypst blocks = vcat <$> mapM blockToTypst blocks
 blockToTypst :: PandocMonad m => Block -> TW m (Doc Text)
 blockToTypst block =
   case block of
-    Plain inlines -> do
-      opts <- gets stOptions
-      inlinesToTypst (addLineStartEscapes opts inlines)
+    Plain inlines -> inlinesToTypst inlines
     Para inlines -> do
-      opts <- gets stOptions
-      ($$ blankline) <$> inlinesToTypst (addLineStartEscapes opts inlines)
+      ($$ blankline) <$> inlinesToTypst inlines
     Header level (ident,cls,_) inlines -> do
       contents <- inlinesToTypst inlines
       let lab = toLabel FreestandingLabel ident
@@ -504,23 +503,17 @@ mkImage opts useBox src attr
 
 textstyle :: PandocMonad m => Doc Text -> [Inline] -> TW m (Doc Text)
 textstyle s inlines = do
-  opts <-  gets stOptions
-  (<> endCode) . (s <>) . brackets
-    <$> inlinesToTypst (addLineStartEscapes opts inlines)
+  (<> endCode) . (s <>) . brackets . fixInitialAfterBreakEscape
+    <$> inlinesToTypst inlines
 
-addLineStartEscapes :: WriterOptions -> [Inline] -> [Inline]
-addLineStartEscapes opts = go True
- where
-   go True (Str t : xs)
-        | isOrderedListMarker t = RawInline "typst" "\\" : Str t : go False xs
-        | Just (c, t') <- T.uncons t
-        , needsEscapeAtLineStart c
-        , T.null t' = RawInline "typst" "\\" : Str t : go False xs
-   go _ (SoftBreak : xs)
-        | writerWrapText opts == WrapPreserve = SoftBreak : go True xs
-   go _ (LineBreak : xs) = LineBreak : go True xs
-   go _ (x : xs) = x : go False xs
-   go _ [] = []
+fixInitialAfterBreakEscape :: Doc Text -> Doc Text
+fixInitialAfterBreakEscape (Concat x y) =
+  Concat (fixInitialAfterBreakEscape x) y
+-- make an initial AfterBreak escape unconditional (it will be rendered
+-- in a block [..] and there won't be an actual break to trigger it, but
+-- typst still needs the escape)
+fixInitialAfterBreakEscape (AfterBreak "\\") = Text 1 "\\"
+fixInitialAfterBreakEscape x = x
 
 isOrderedListMarker :: Text -> Bool
 isOrderedListMarker t = not (T.null ds) && rest == "."
@@ -530,7 +523,7 @@ escapeTypst :: Bool -> EscapeContext -> Text -> Doc Text
 escapeTypst smart context t =
   (case T.uncons t of
     Just (c, _)
-      | needsEscapeAtLineStart c
+      | needsEscapeAtLineStart c || isOrderedListMarker t
         -> afterBreak "\\"
     _ -> mempty) <>
   (literal (T.replace "//" "\\/\\/"
@@ -591,7 +584,7 @@ toLabel labelType ident
    ident' = T.pack $ unEscapeString $ T.unpack ident
 
 isIdentChar :: Char -> Bool
-isIdentChar c = isAlphaNum c || c == '_' || c == '-' || c == '.' || c == ':'
+isIdentChar c = isXIDContinue c || c == '_' || c == '-' || c == '.' || c == ':'
 
 toCite :: PandocMonad m => Citation -> TW m (Doc Text)
 toCite cite = do
@@ -617,7 +610,10 @@ toCite cite = do
                   [] -> pure mempty
                   suff -> (", supplement: " <>) . brackets
                              <$> inlinesToTypst (eatComma suff)
-       pure $ "#cite" <> parens (label <> form <> suppl) <> endCode
+       pure $ (if citationMode cite == SuppressAuthor  -- see #11044
+                  then parens
+                  else id)
+            $ "#cite" <> parens (label <> form <> suppl) <> endCode
 
 doubleQuoted :: Text -> Doc Text
 doubleQuoted = doubleQuotes . literal . escape

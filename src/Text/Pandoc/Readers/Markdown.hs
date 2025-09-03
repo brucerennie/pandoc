@@ -1057,8 +1057,12 @@ implicitFigure (ident, classes, attribs) capt url title =
   let alt = case "alt" `lookup` attribs of
               Just alt'       -> B.text alt'
               _               -> capt
-      attribs' = filter ((/= "alt") . fst) attribs
-      figattr = (ident, mempty, mempty)
+      attribs' = filter ((/= "latex-placement") . fst)
+                    (filter ((/= "alt") . fst) attribs)
+      figattribs = case lookup "latex-placement" attribs of
+        Just p -> [("latex-placement", p)]
+        _      -> mempty
+      figattr = (ident, mempty, figattribs)
       caption = B.simpleCaption $ B.plain capt
       figbody = B.plain $ B.imageWith ("", classes, attribs') url title alt
   in B.figureWith figattr caption figbody
@@ -1204,7 +1208,7 @@ dashedLine ch = do
 -- one (or zero) line of text.
 simpleTableHeader :: PandocMonad m
                   => Bool  -- ^ Headerless table
-                  -> MarkdownParser m (F [Blocks], [Alignment], [Int])
+                  -> MarkdownParser m (F [[Blocks]], [Alignment], [Int])
 simpleTableHeader headless = try $ do
   rawContent  <- if headless
                     then return ""
@@ -1226,7 +1230,7 @@ simpleTableHeader headless = try $ do
   heads <- fmap sequence
            $
             mapM (parseFromString' (mconcat <$> many plain).trim) rawHeads'
-  return (heads, aligns, indices)
+  return (fmap (:[]) heads, aligns, indices)
 
 -- Returns an alignment type for a table, based on a list of strings
 -- (the rows of the column header) and a number (the length of the
@@ -1320,7 +1324,7 @@ multilineTable headless =
 
 multilineTableHeader :: PandocMonad m
                      => Bool -- ^ Headerless table
-                     -> MarkdownParser m (F [Blocks], [Alignment], [Int])
+                     -> MarkdownParser m (F [[Blocks]], [Alignment], [Int])
 multilineTableHeader headless = try $ do
   unless headless $
      tableSep >> notFollowedBy blankline
@@ -1349,7 +1353,7 @@ multilineTableHeader headless = try $ do
                     else map (T.unlines . map trim) rawHeadsList
   heads <- fmap sequence $
             mapM (parseFromString' (mconcat <$> many plain).trim) rawHeads
-  return (heads, aligns, indices')
+  return (fmap (:[]) heads, aligns, indices')
 
 -- Parse a grid table:  starts with row of '-' on top, then header
 -- (which may be grid), then the rows,
@@ -1394,7 +1398,7 @@ pipeTable = try $ do
   (rows :: F [[Blocks]]) <- sequence <$>
                             mapM (fmap sequence . mapM cellContents) lines''
   return $
-    toTableComponents' NormalizeHeader aligns widths <$> headCells <*> rows
+    toTableComponents' NormalizeHeader aligns widths <$> fmap (:[]) headCells <*> rows
 
 sepPipe :: PandocMonad m => MarkdownParser m ()
 sepPipe = try $ do
@@ -2227,7 +2231,7 @@ bareloc c = try $ do
   rest <- option (return []) $ try $ char ';' >> spnl >> citeList
   spnl
   char ']'
-  notFollowedBy $ oneOf "[("
+  notFollowedBy $ oneOf "[({"
   return $ do
     suff' <- suff
     rest' <- rest

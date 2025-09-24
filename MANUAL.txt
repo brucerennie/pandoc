@@ -1,7 +1,7 @@
 ---
 title: Pandoc User's Guide
 author: John MacFarlane
-date: 2025-05-28
+date: 2025-09-06
 ---
 
 # Synopsis
@@ -361,6 +361,7 @@ header when requesting a document from a URL:
     - `s5` ([S5] HTML and JavaScript slide show)
     - `tei` ([TEI Simple])
     - `typst` ([typst])
+    - `vimdoc` ([Vimdoc])
     - `xml` (XML version of native AST)
     - `xwiki` ([XWiki markup])
     - `zimwiki` ([ZimWiki markup])
@@ -511,6 +512,7 @@ header when requesting a document from a URL:
 [DokuWiki markup]: https://www.dokuwiki.org/dokuwiki
 [ZimWiki markup]: https://zim-wiki.org/manual/Help/Wiki_Syntax.html
 [XWiki markup]: https://www.xwiki.org/xwiki/bin/view/Documentation/UserGuide/Features/XWikiSyntax/
+[Vimdoc]: https://vimhelp.org/helphelp.txt.html#help-writing
 [TWiki markup]: https://twiki.org/cgi-bin/view/TWiki/TextFormattingRules
 [TikiWiki markup]: https://doc.tiki.org/Wiki-Syntax-Text#The_Markup_Language_Wiki-Syntax
 [Haddock markup]: https://www.haskell.org/haddock/doc/html/ch03s08.html
@@ -6487,7 +6489,7 @@ comma will be added if appropriate.)  Thus:
 ## Placement of the bibliography
 
 If the style calls for a list of works cited, it will be placed
-in a div with id `refs`, if one exists:
+in a div with id `refs`, if one exists:[^note-on-refs]
 
     ::: {#refs}
     :::
@@ -6495,6 +6497,13 @@ in a div with id `refs`, if one exists:
 Otherwise, it will be placed at the end of the document.
 Generation of the bibliography can be suppressed by setting
 `suppress-bibliography: true` in the YAML metadata.
+
+[^note-on-refs]:
+    Note that if `--file-scope` is used, a div written this way will be
+    given an identifier of the form `FILE__refs`, to avoid duplicate
+    identifiers (see `--file-scope`). In view of this possibility,
+    pandoc will place the bibliography in any div whose identifier is
+    `refs` *or* ends with `__refs`.
 
 If you wish the bibliography to have a section heading, you can
 set `reference-section-title` in the metadata, or put the heading
@@ -7408,6 +7417,106 @@ notebooks.  For example, `--wrap=preserve` will preserve
 soft line breaks in Markdown cells; `--markdown-headings=setext` will
 cause Setext-style headings to be used; and `--preserve-tabs` will
 prevent tabs from being turned to spaces.
+
+# Vimdoc
+
+Vimdoc writer generates Vim help files and makes use of the following metadata
+variables:
+
+``` yaml
+abstract: "A short description"
+author: Author
+title: Title
+
+# Vimdoc-specific
+filename: "definition-lists.txt"
+vimdoc-prefix: pandoc
+```
+
+Complete header requires `abstract`, `author`, `title` and `filename` to
+be set. Compiling file with such metadata produces the following file
+(assumes `--standalone`, see [Templates]):
+
+``` vimdoc
+*definition-lists.txt*  A short description
+
+                            Title by Author
+
+
+                                 Type |gO| to see the table of contents.
+
+[...]
+
+ vim:tw=72:sw=4:ts=4:ft=help:norl:et:
+```
+
+If `vimdoc-prefix` is set, all non-command tags are prefixed with its
+value, it is used to prevent tag collision: all headers have a tag
+(either inferred or explicit) and multiple help pages can have the same
+header names, therefore collision is to be expected. Let our input be
+the following markdown file:
+
+``` markdown
+## Header
+
+`:[range]Fnl {expr}`{#:Fnl}
+:   Evaluates {expr} or range
+
+`vim.b`{#vim.b}
+:   Buffer-scoped (`:h b:`) variables for the current buffer. Invalid or unset
+    key returns `nil`. Can be indexed with an integer to access variables for a
+    specific buffer.
+
+[Span]{#span}
+:   generic inline container for phrasing content, which does not inherently
+    represent anything.
+```
+
+Convert it to vimdoc:
+
+``` vimdoc
+------------------------------------------------------------------------
+Header                                                            *header*
+
+:[range]Fnl {expr}                                                  *:Fnl*
+    Evaluates {expr} or range
+`vim.b`                                                            *vim.b*
+    Buffer-scoped (|b:|) variables for the current buffer. Invalid or
+    unset key returns `nil`. Can be indexed with an integer to access
+    variables for a specific buffer.
+Span                                                                *span*
+    generic inline container for phrasing content, which does not
+    inherently represent anything.
+```
+
+Convert it to vimdoc with metadata variable set (e.g. with
+`-M vimdoc-prefix=pandoc`)
+
+``` vimdoc
+------------------------------------------------------------------------
+Header                                                     *pandoc-header*
+
+:[range]Fnl {expr}                                                  *:Fnl*
+    Evaluates {expr} or range
+`vim.b`                                                     *pandoc-vim.b*
+    Buffer-scoped (|b:|) variables for the current buffer. Invalid or
+    unset key returns `nil`. Can be indexed with an integer to access
+    variables for a specific buffer.
+Span                                                         *pandoc-span*
+    generic inline container for phrasing content, which does not
+    inherently represent anything.
+```
+
+`vim.b` and `Span` got their prefixes but not `:Fnl` because ex-commands
+(those starting with `:`) don't get a prefix, since they are considered
+unique across help pages.
+
+In both cases `:help b:` became reference `|b:|` (also works with
+`:h b:`). Links pointing to either <https://vimhelp.org/> or
+<https://neovim.io/doc/user> become references too.
+
+Vim traditionally wraps at 78, but Pandoc defaults to 72. Use
+`--columns 78` to match Vim.
 
 # Syntax highlighting
 

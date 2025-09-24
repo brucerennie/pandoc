@@ -32,7 +32,7 @@ import Control.Monad
       unless )
 import Crypto.Hash (hashWith, MD5(MD5))
 import Data.Containers.ListUtils (nubOrd)
-import Data.Char (isDigit, isAscii)
+import Data.Char (isDigit, isAscii, isLetter)
 import Data.List (intersperse, (\\))
 import Data.Maybe (catMaybes, fromMaybe, isJust, mapMaybe, isNothing)
 import Data.Monoid (Any (..))
@@ -68,7 +68,6 @@ import Text.Pandoc.Writers.Shared
 import qualified Data.Attoparsec.Text as A
 import qualified Text.Pandoc.UTF8 as UTF8
 import qualified Text.Pandoc.Writers.AnnotatedTable as Ann
-import Data.Char (isLetter)
 import Control.Applicative ((<|>))
 
 -- Work around problems with notes inside emphasis (see #8982)
@@ -216,7 +215,15 @@ pandocToLaTeX options (Pandoc meta blocks) = do
                            _         -> [])
                     $ lookupMetaInlines "nocite" meta
 
-  let context  =  defField "toc" (writerTableOfContents options) $
+   -- see #7414, avoid escaped underscores
+  let unescapeUnderscore = T.replace "\\_" "_"
+  let bibliography' = map unescapeUnderscore <$>
+                        getField "bibliography" metadata
+
+  let context  =  (case bibliography' of
+                     Nothing -> id
+                     Just xs -> resetField "bibliography" xs) $
+                  defField "toc" (writerTableOfContents options) $
                   defField "lof" (writerListOfFigures options) $
                   defField "lot" (writerListOfTables options) $
                   defField "toc-depth" (tshow
@@ -677,7 +684,7 @@ blockToLaTeX (Figure (ident, _, kvs) captnode body) = do
       , stSubfigure = stSubfigure st || isSubfigure
       }
 
-  let containsTable = getAny . (query $ \case
+  let containsTable = getAny . query (\case
         Table {}  -> Any True
         _         -> Any False)
   st <- get
@@ -785,6 +792,7 @@ sectionHeader classes ident level lst = do
       removeInvalidInline x                    = [x]
   let lstNoNotes = foldr (mappend . (\x -> walkM removeInvalidInline x)) mempty lst
   txtNoNotes <- inlineListToLaTeX lstNoNotes
+  txtNoLinksNoNotes <- inlineListToLaTeX (removeLinks lstNoNotes)
   -- footnotes in sections don't work (except for starred variants)
   -- unless you specify an optional argument:
   -- \section[mysec]{mysec\footnote{blah}}
@@ -837,7 +845,7 @@ sectionHeader classes ident level lst = do
                    $$ if unnumbered && not unlisted
                          then "\\addcontentsline{toc}" <>
                                 braces (text sectionType) <>
-                                braces txtNoNotes
+                                braces txtNoLinksNoNotes
                          else empty
 
 -- | Convert list of inline elements to LaTeX.
@@ -947,6 +955,7 @@ inlineToLaTeX (Code (_,classes,kvs) str) = do
   inHeading <- gets stInHeading
   inItem <- gets stInItem
   inSoul <- gets stInSoulCommand
+  inCaption <- gets stInCaption
   let listingsCode = do
         let listingsopts = (case getListingsLanguage classes of
                                 Just l  -> (("language", mbBraced l):)
@@ -999,7 +1008,14 @@ inlineToLaTeX (Code (_,classes,kvs) str) = do
   -- (see #1294). with regular texttt we don't get an error, but we get
   -- incorrect results if there is a space (see #5529).
   let inMbox x = "\\mbox" <> braces x
-  (if inSoul then inMbox else id) <$>
+
+  -- for captions we need to protect VERB with \protect (see #6821)
+  let protect x = "\\protect" <> x
+
+  let optionalProtect = case () of _ | inSoul -> inMbox
+                                     | inCaption -> protect
+                                     | otherwise -> id
+  optionalProtect <$>
    case writerHighlightMethod opts of
      _ | inHeading || inItem  -> rawCode  -- see #5574
      IdiomaticHighlighting    -> listingsCode
@@ -1377,4 +1393,3 @@ needsCancel t =
            then return True
            else pCancel
       _ -> pCancel
-

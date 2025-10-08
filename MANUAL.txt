@@ -1,7 +1,7 @@
 ---
 title: Pandoc User's Guide
 author: John MacFarlane
-date: 2025-09-06
+date: 2025-10-05
 ---
 
 # Synopsis
@@ -151,8 +151,7 @@ scheme that use a colored background. The use of `xelatex` or
 uses [`selnolig`] and [`lua-ul`]. `xelatex` uses [`bidi`] (with
 the `dir` variable set).
 If the `mathspec` variable is set, `xelatex` will use [`mathspec`]
-instead of [`unicode-math`].  The [`upquote`] and [`microtype`]
-packages are used if available, and [`csquotes`] will be used
+instead of [`unicode-math`].  The [`csquotes`] package will be used
 for [typography] if the `csquotes` variable or metadata field is
 set to a true value.  The [`natbib`], [`biblatex`], [`bibtex`],
 and [`biber`] packages can optionally be used for [citation
@@ -194,6 +193,7 @@ better line breaks in URLs), and [`footnotehyper`] or
 [`longtable`]: https://ctan.org/pkg/longtable
 [`mathspec`]: https://ctan.org/pkg/mathspec
 [`microtype`]: https://ctan.org/pkg/microtype
+[`multirow`]: https://ctan.org/pkg/multirow
 [`natbib`]: https://ctan.org/pkg/natbib
 [`parskip`]: https://ctan.org/pkg/parskip
 [`polyglossia`]: https://ctan.org/pkg/polyglossia
@@ -3419,7 +3419,7 @@ The `--css` option also affects the output.
 ### Variables for Typst
 
 `template`
-:   Typst template to use.
+:   Typst template to use (relative path only).
 
 `margin`
 :   A dictionary with the fields defined in the Typst documentation:
@@ -4926,6 +4926,14 @@ are not supported. In particular, to get non-default column alignment,
 you'll need to add colons as above.
 
 [PHP Markdown Extra tables]: https://michelf.ca/projects/php-markdown/extra/#table
+
+### Extension: `table_attributes` ###
+
+Attributes may be attached to tables by including them at the end
+of the caption. (For the syntax, see
+[`header_attributes`][Extension: `header_attributes`].)
+
+      : Here's the caption. {#ident .class key="value"}
 
 ## Metadata blocks
 
@@ -7528,7 +7536,7 @@ Vim traditionally wraps at 78, but Pandoc defaults to 72. Use
 Pandoc will automatically highlight syntax in [fenced code blocks] that
 are marked with a language name.  The Haskell library [skylighting] is
 used for highlighting. Currently highlighting is supported only for
-HTML, EPUB, Docx, Ms, Man, and LaTeX/PDF output. To see a list
+HTML, EPUB, Docx, Ms, Man, Typst, and LaTeX/PDF output. To see a list
 of language names that pandoc will recognize, type `pandoc
 --list-highlight-languages`.
 

@@ -183,6 +183,7 @@ pandocToLaTeX options (Pandoc meta blocks) = do
   st <- get
   titleMeta <- escapeCommas <$> -- see #10501
                 stringToLaTeX TextString (stringify $ docTitle meta)
+  subtitleMeta <- stringToLaTeX TextString (stringify $ lookupMetaInlines "subtitle" meta)
   authorsMeta <- mapM (stringToLaTeX TextString . stringify) $ docAuthors meta
   -- The trailer ID is as hash used to identify the PDF. Taking control of its
   -- value is important when aiming for reproducible PDF generation. Setting
@@ -233,6 +234,7 @@ pandocToLaTeX options (Pandoc meta blocks) = do
                                                  else 0)) $
                   defField "body" main $
                   defField "title-meta" titleMeta $
+                  defField "subtitle-meta" subtitleMeta $
                   defField "author-meta"
                         (T.intercalate "; " authorsMeta) $
                   defField "documentclass" documentClass $
@@ -543,7 +545,7 @@ blockToLaTeX (CodeBlock (identifier,classes,keyvalAttr) str) = do
                Right h -> do
                   when inNote $ modify (\s -> s{ stVerbInNote = True })
                   modify (\s -> s{ stHighlighting = True })
-                  return (flush $ linkAnchor $$ text (T.unpack h))
+                  return (flush $ linkAnchor $$ literal h)
   case () of
      _ | isEnabled Ext_literate_haskell opts && "haskell" `elem` classes &&
          "literate" `elem` classes           -> lhsCodeBlock
@@ -1118,23 +1120,25 @@ inlineToLaTeX (Link (id',_,_) txt (src,_)) =
                      then "\\hyperlink" <> braces (literal lab) <> braces contents
                      else "\\hyperref" <> brackets (literal lab) <> braces contents
      _ -> case txt of
+          -- For soul sommands we need to protect \url and \href in an mbox or
+          -- we get an error (see #9366)
           [Str x] | T.all isAscii x  -- see #8802
                   , unEscapeString (T.unpack x) ==
                     unEscapeString (T.unpack src) ->  -- autolink
                do modify $ \s -> s{ stUrl = True }
                   src' <- stringToLaTeX URLString (escapeURI src)
-                  return $ literal $ "\\url{" <> src' <> "}"
+                  protectInMboxIfInSoul $ literal $ "\\url{" <> src' <> "}"
           [Str x] | Just rest <- T.stripPrefix "mailto:" src,
                     unEscapeString (T.unpack x) == unEscapeString (T.unpack rest) -> -- email autolink
                do modify $ \s -> s{ stUrl = True }
                   src' <- stringToLaTeX URLString (escapeURI src)
                   contents <- inlineListToLaTeX txt
-                  return $ "\\href" <> braces (literal src') <>
+                  protectInMboxIfInSoul $ "\\href" <> braces (literal src') <>
                      braces ("\\nolinkurl" <> braces contents)
           _ -> do contents <- inlineListToLaTeX txt
                   src' <- stringToLaTeX URLString (escapeURI src)
-                  return $ literal ("\\href{" <> src' <> "}{") <>
-                           contents <> char '}')
+                  protectInMboxIfInSoul $ literal ("\\href{" <> src' <> "}{") <>
+                    contents <> char '}')
      >>= (if T.null id'
              then return
              else \x -> do
@@ -1266,6 +1270,15 @@ inSoulCommand pa = do
   result <- pa
   modify $ \st -> st{ stInSoulCommand = oldInSoulCommand }
   pure result
+
+-- Inside soul commands some commands need to be protected in an mbox
+-- or we get an error (e.g. see #1294)
+protectInMboxIfInSoul :: (PandocMonad m, HasChars a) => Doc a -> LW m (Doc a)
+protectInMboxIfInSoul command = do
+  inSoul <- gets stInSoulCommand
+  return $ if inSoul
+    then "\\mbox" <> braces command
+    else command
 
 -- Babel languages with a .ldf that works well with all engines (see #8283).
 -- We follow the guidance from the Babel documentation:

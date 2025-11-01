@@ -47,7 +47,7 @@
   paper: "us-letter",
   lang: "en",
   region: "US",
-  font: (),
+  font: none,
   fontsize: 11pt,
   mathfont: none,
   codefont: none,
@@ -70,6 +70,7 @@
     paper: paper,
     margin: margin,
     numbering: pagenumbering,
+    columns: cols
   )
 
   set par(
@@ -78,9 +79,9 @@
   )
   set text(lang: lang,
            region: region,
-           font: font,
            size: fontsize)
 
+  set text(font: font) if font != none
   show math.equation: set text(font: mathfont) if mathfont != none
   show raw: set text(font: codefont) if codefont != none
 
@@ -96,9 +97,9 @@
     }
   }
 
-  block(below: 4mm)[
+  block(below: 1em, width: 100%)[
     #if title != none {
-      align(center)[#block(inset: 2em)[
+      align(center, block[
           #text(weight: "bold", size: 1.5em)[#title #if thanks != none {
               footnote(thanks, numbering: "*")
               counter(footnote).update(n => n - 1)
@@ -108,8 +109,7 @@
               parbreak()
               text(weight: "bold", size: 1.25em)[#subtitle]
             }
-          )
-        ]]
+           )])
     }
 
     #if authors != none and authors != [] {

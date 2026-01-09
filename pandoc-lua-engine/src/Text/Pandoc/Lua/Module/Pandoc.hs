@@ -63,17 +63,15 @@ import qualified Data.Text as T
 import qualified Text.Pandoc.UTF8 as UTF8
 
 documentedModule :: Module PandocError
-documentedModule = Module
-  { moduleName = "pandoc"
-  , moduleDescription = T.unlines
+documentedModule = defmodule "pandoc"
+  `withDescription` T.unlines
     [ "Fields and functions for pandoc scripts; includes constructors for"
     , "document tree elements, functions to parse text in a given"
     , "format, and functions to filter and modify a subtree."
     ]
-  , moduleFields = readersField : writersField :
+  `withFields` readersField : writersField :
                    stringConstants ++ [inlineField, blockField]
-  , moduleOperations = []
-  , moduleFunctions = mconcat
+  `withFunctions` mconcat
       [ [mkPandoc, mkMeta]
       , metaValueConstructors
       , blockConstructors
@@ -83,25 +81,20 @@ documentedModule = Module
       , otherConstructors
       , functions
       ]
-  , moduleTypeInitializers =
-    [ initType typePandoc
-    , initType typeBlock
-    , initType typeInline
-    ]
-  }
+  `associateType` typePandoc
+  `associateType` typeBlock
+  `associateType` typeInline
 
 -- | Set of input formats accepted by @read@.
 readersField :: Field PandocError
-readersField = Field
-  { fieldName = "readers"
-  , fieldType = "table"
-  , fieldDescription = T.unlines
+readersField = deffield "readers"
+  `withType` "table"
+  `withDescription` T.unlines
     [ "Set of formats that pandoc can parse. All keys in this table can"
     , "be used as the `format` value in `pandoc.read`."
     ]
-  , fieldPushValue = pushKeyValuePairs pushText (pushText . readerType)
+  `withValue` pushKeyValuePairs pushText (pushText . readerType)
                      (readers @PandocLua)
-  }
  where
   readerType = \case
     TextReader {} -> "text"
@@ -109,16 +102,14 @@ readersField = Field
 
 -- | Set of input formats accepted by @write@.
 writersField :: Field PandocError
-writersField = Field
-  { fieldName = "writers"
-  , fieldType = "table"
-  , fieldDescription = T.unlines
+writersField = deffield "writers"
+  `withType` "table"
+  `withDescription` T.unlines
     [ "Set of formats that pandoc can generate. All keys in this table"
     , "can be used as the `format` value in `pandoc.write`."
     ]
-  , fieldPushValue = pushKeyValuePairs pushText (pushText . writerType)
+  `withValue` pushKeyValuePairs pushText (pushText . writerType)
                      (writers @PandocLua)
-  }
  where
   writerType = \case
     TextWriter {} -> "text"
@@ -126,25 +117,21 @@ writersField = Field
 
 -- | Inline table field
 inlineField :: Field PandocError
-inlineField = Field
-  { fieldName = "Inline"
-  , fieldType = "table"
-  , fieldDescription = "Inline constructors, nested under 'constructors'."
+inlineField = deffield "Inline"
+  `withType` "table"
+  `withDescription` "Inline constructors, nested under 'constructors'."
   -- the nesting happens for historical reasons and should probably be
   -- changed.
-  , fieldPushValue = pushWithConstructorsSubtable inlineConstructors
-  }
+  `withValue` pushWithConstructorsSubtable inlineConstructors
 
 -- | @Block@ module field
 blockField :: Field PandocError
-blockField = Field
-  { fieldName = "Block"
-  , fieldType = "table"
-  , fieldDescription = "Inline constructors, nested under 'constructors'."
+blockField = deffield "Block"
+  `withType` "table"
+  `withDescription` "Inline constructors, nested under 'constructors'."
   -- the nesting happens for historical reasons and should probably be
   -- changed.
-  , fieldPushValue = pushWithConstructorsSubtable blockConstructors
-  }
+  `withValue` pushWithConstructorsSubtable blockConstructors
 
 pushWithConstructorsSubtable :: [DocumentedFunction PandocError]
                              -> LuaE PandocError ()
@@ -222,12 +209,10 @@ stringConstants =
         , constrs (Proxy @Alignment)
         , constrs (Proxy @CitationMode)
         ]
-      toField s = Field
-        { fieldName = T.pack s
-        , fieldType = "string"
-        , fieldDescription = T.pack s
-        , fieldPushValue = pushString s
-        }
+      toField s = deffield (Name $ UTF8.fromString s)
+        `withType` "string"
+        `withDescription` T.pack s
+        `withValue` pushString s
   in map toField nullaryConstructors
 
 functions :: [DocumentedFunction PandocError]
@@ -485,21 +470,29 @@ data StateOptions = StateOptions
 -- unspecified values.
 peekStateOptions :: Peeker PandocError StateOptions
 peekStateOptions idx = do
-  opts <- liftLua getStateOptions
-  let peekStateField field defVal peeker =
-        peekFieldRaw (fmap (fromMaybe defVal) . peekNilOr peeker) field idx
-  let peekOptStateField field defVal peeker =
-        peekFieldRaw (fmap (maybe defVal Just ) . peekNilOr peeker) field idx
-  StateOptions
-    <$> peekStateField "request_headers"
-          (stateOptsRequestHeaders opts)
-          (peekList (peekPair peekText peekText))
-    <*> peekStateField "resource_path"
-          (stateOptsResourcePath opts)
-          (peekList peekString)
-    <*> peekOptStateField "user_data_dir"
-          (stateOptsUserDataDir opts)
-          peekString
+  absidx <- liftLua $ absindex idx
+  let setOptions opts = do
+        liftLua (next absidx) >>= \case
+          False -> return opts
+          True -> do
+            key <- peekByteString (nth 2)
+            case key of
+              "request_headers" -> do
+                let peekHeaderPair = peekPair peekText peekText
+                value <- peekList peekHeaderPair top `lastly` pop 1
+                setOptions $ opts { stateOptsRequestHeaders = value }
+              "resource_path" -> do
+                value <- peekList peekString top `lastly` pop 1
+                setOptions $ opts { stateOptsResourcePath = value }
+              "user_data_dir" -> do
+                value <- peekNilOr peekString top `lastly` pop 1
+                setOptions $ opts { stateOptsUserDataDir = value }
+              _ -> do
+                liftLua $ pop 2 -- remove key and value
+                failPeek $ "Unknown or unsupported state option: " <> key
+
+  liftLua pushnil -- first "key"
+  liftLua getStateOptions >>= setOptions
 
 -- | Get the current options values from the pandoc state.
 getStateOptions :: LuaE PandocError StateOptions

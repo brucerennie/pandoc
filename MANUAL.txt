@@ -307,7 +307,7 @@ header when requesting a document from a URL:
     - `bbcode` [BBCode]
     - `bbcode_fluxbb` [BBCode (FluxBB)]
     - `bbcode_phpbb` [BBCode (phpBB)]
-    - `bbcode_steam` [BBCode (Hubzilla)]
+    - `bbcode_steam` [BBCode (Steam)]
     - `bbcode_hubzilla` [BBCode (Hubzilla)]
     - `bbcode_xenforo` [BBCode (xenForo)]
     - `beamer` ([LaTeX beamer][`beamer`] slide show)
@@ -6937,6 +6937,23 @@ in handouts and presenter view.
 
 Notes are not yet supported for other slide formats, but the notes
 will not appear on the slides themselves.
+
+### Speaker notes on the title slide (PowerPoint)
+
+For PowerPoint output, the title slide is generated from the document's
+YAML metadata block. To add speaker notes to this slide, use a `notes`
+field in the metadata:
+
+    ---
+    title: My Presentation
+    author: Jane Doe
+    notes: |
+      Welcome everyone to this presentation.
+
+      Remember to introduce yourself and mention the key topics.
+    ---
+
+The `notes` field can contain multiple paragraphs and Markdown formatting.
 
 ## Columns
 

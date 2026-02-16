@@ -1,7 +1,7 @@
 ---
 title: Pandoc User's Guide
 author: John MacFarlane
-date: 2025-12-01
+date: 2025-02-02
 ---
 
 # Synopsis
@@ -416,17 +416,17 @@ header when requesting a document from a URL:
 
 `-d` *FILE*, `--defaults=`*FILE*
 
-:   Specify a set of default option settings.  *FILE* is a YAML
+:   Specify a set of default option settings.  *FILE* is a YAML or JSON
     file whose fields correspond to command-line option
     settings.  All options for document conversion, including input
     and output files, can be set using a defaults file.  The file will
     be searched for first in the working directory, and then in
     the `defaults` subdirectory of the user data directory
-    (see `--data-dir`).  The `.yaml` extension may be omitted.
-    See the section [Defaults files] for more information on the
-    file format.  Settings from the defaults file may be
-    overridden or extended by subsequent options on the command
-    line.
+    (see `--data-dir`).  The `.yaml` extension will be added if
+    *FILE* lacs an extension. See the section [Defaults files]
+    for more information on the file format. Settings from the
+    defaults file may be overridden or extended by subsequent
+    options on the command line.
 
 `--bash-completion`
 
@@ -544,7 +544,7 @@ header when requesting a document from a URL:
 [reveal.js]: https://revealjs.com/
 [FictionBook2]: http://www.fictionbook.org/index.php/Eng:XML_Schema_Fictionbook_2.1
 [Jupyter notebook]: https://nbformat.readthedocs.io/en/latest/
-[InDesign ICML]: https://manualzz.com/doc/9627253/adobe-indesign-cs6-idml-cookbook
+[InDesign ICML]: https://web.archive.org/web/20211006210211/https://wwwimages.adobe.com/www.adobe.com/content/dam/acom/en/devnet/indesign/sdk/cs6/idml/idml-cookbook.pdf
 [TEI Simple]: https://github.com/TEIC/TEI-Simple
 [Muse]: https://amusewiki.org/library/manual
 [PowerPoint]: https://en.wikipedia.org/wiki/Microsoft_PowerPoint
@@ -736,7 +736,7 @@ header when requesting a document from a URL:
     affected paragraph break. This option only affects the docx
     reader.
 
-`--extract-media=`*DIR*|*FILE*`.tar`
+`--extract-media=`*DIR*|*FILE*`.zip`
 
 :   Extract images and other media contained in or linked from
     the source document to the path *DIR*, creating it if
@@ -748,9 +748,9 @@ header when requesting a document from a URL:
     Otherwise filenames are constructed from the SHA1 hash of
     the contents.
 
-    If the path given ends in `.tar`, then instead of creating
-    a directory, pandoc will create a tar archive with the media
-    files.
+    If the path given ends in `.zip`, then instead of creating
+    a directory, pandoc will create a zip archive containing the
+    media files.
 
 `--abbreviations=`*FILE*
 
@@ -1759,7 +1759,9 @@ Nonzero exit codes have the following meanings:
 # Defaults files
 
 The `--defaults` option may be used to specify a package
-of options, in the form of a YAML file.
+of options, in the form of a YAML or JSON file. Examples in
+this section will be given in YAML, but the equivalent forms in
+JSON will also work.
 
 Fields that are omitted will just have their regular
 default values.  So a defaults file can be as simple as
@@ -1767,6 +1769,12 @@ one line:
 
 ``` yaml
 verbosity: INFO
+```
+
+or in JSON:
+
+``` json
+{ "verbosity": "INFO" }
 ```
 
 In fields that expect a file path (or list of file paths), the
@@ -2002,7 +2010,7 @@ To include the built-in citeproc filter, use either `citeproc` or
 | ```                              | ```                               |
 +----------------------------------+-----------------------------------+
 | ```                              | ``` yaml                          |
-| --wrap 60                        | wrap: 60                          |
+| --wrap preserve                  | wrap: "preserve"                  |
 | ```                              | ```                               |
 +----------------------------------+-----------------------------------+
 | ```                              | ``` yaml                          |
@@ -2991,6 +2999,9 @@ These variables change the appearance of PDF slides using [`beamer`].
 `logo`
 :   logo image for slides
 
+`logooptions`
+:   options for logo image (e.g., `width`, `height`)
+
 `navigation`
 :   controls navigation symbols (default is `empty` for no navigation
     symbols; other valid values are `frame`, `vertical`, and `horizontal`)
@@ -3008,7 +3019,7 @@ These variables change the appearance of PDF slides using [`beamer`].
 :   image for title slide: can be a list
 
 `titlegraphicoptions`
-:   options for title slide image
+:   options for title slide image (e.g., `width`, `height`)
 
 `shorttitle`, `shortsubtitle`, `shortauthor`, `shortinstitute`, `shortdate`
 :   some beamer themes use short versions of the title, subtitle, author,

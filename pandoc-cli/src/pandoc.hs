@@ -1,5 +1,7 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+
 {- |
    Module      : Main
    Copyright   : Copyright (C) 2006-2024 John MacFarlane
@@ -23,10 +25,12 @@ import PandocCLI.Lua
 import PandocCLI.Server
 import Text.Pandoc.Scripting (ScriptingEngine(..))
 import qualified Data.Text as T
-
 #ifdef NIGHTLY
 import qualified Language.Haskell.TH as TH
 import Data.Time
+#endif
+#ifdef INCLUDE_WASM
+import PandocWasm()
 #endif
 
 #ifdef NIGHTLY

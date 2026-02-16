@@ -18,7 +18,7 @@ module Text.Pandoc.Writers.Typst (
     writeTypst
   ) where
 import Text.Pandoc.Definition
-import Text.Pandoc.Class ( PandocMonad, report )
+import Text.Pandoc.Class ( PandocMonad, report, runPure, fetchItem )
 import Text.Pandoc.ImageSize ( dimension, Dimension(Pixel), Direction(..),
                                showInInch )
 import Text.Pandoc.Options ( WriterOptions(..), WrapOption(..), isEnabled,
@@ -33,10 +33,11 @@ import Control.Monad.State ( StateT, evalStateT, gets, modify )
 import Text.Pandoc.Writers.Shared ( lookupMetaInlines, lookupMetaString,
                                     metaToContext, defField, resetField,
                                     setupTranslations )
-import Text.Pandoc.Shared (isTightList, orderedListMarkers, tshow)
+import Text.Pandoc.Shared (isTightList, orderedListMarkers, tshow, stringify)
 import Text.Pandoc.Highlighting (highlight, formatTypstBlock, formatTypstInline,
                                  styleToTypst)
 import Text.Pandoc.Translations (Term(Abstract), translateTerm)
+import Text.Pandoc.Error (PandocError(PandocSomeError))
 import Text.Pandoc.Walk (query)
 import Text.Pandoc.Writers.Math (convertMath)
 import qualified Text.TeXMath as TM
@@ -44,11 +45,13 @@ import Text.DocLayout
 import Text.DocTemplates (renderTemplate)
 import Text.Pandoc.Extensions (Extension(..))
 import Text.Pandoc.Logging (LogMessage(..))
+import qualified Text.Pandoc.UTF8 as UTF8
 import Text.Collate.Lang (Lang(..), parseLang)
 import Text.Printf (printf)
 import Data.Char (isDigit)
 import Data.Maybe (fromMaybe)
 import Unicode.Char (isXIDContinue)
+import qualified Data.ByteString as B
 
 -- | Convert Pandoc to Typst.
 writeTypst :: PandocMonad m => WriterOptions -> Pandoc -> m Text
@@ -363,12 +366,13 @@ blockToTypst block =
     Figure (ident,_,_) (Caption _mbshort capt) blocks -> do
       caption <- blocksToTypst capt
       opts <-  gets stOptions
+      let toImage (Image attr inlines (src, _)) =
+            Just $ mkImage opts False src attr (getAlt attr inlines)
+          toImage _ = Nothing
       contents <- case blocks of
                      -- don't need #box around block-level image
-                     [Para [Image attr _ (src, _)]]
-                       -> pure $ mkImage opts False src attr
-                     [Plain [Image attr _ (src, _)]]
-                       -> pure $ mkImage opts False src attr
+                     [Para [img]] | Just i <- toImage img -> pure i
+                     [Plain [img]] | Just i <- toImage img -> pure i
                      _ -> brackets <$> blocksToTypst blocks
       let lab = toLabel FreestandingLabel ident
       return $ "#figure(" <> nest 2 ((contents <> ",")
@@ -443,7 +447,7 @@ inlineToTypst inline =
         WrapPreserve -> return cr
         WrapAuto     -> return space
         WrapNone     -> return space
-    LineBreak -> return (space <> "\\" <> cr)
+    LineBreak -> return (space <> "\\" <> space)
     Math mathType str -> do
       res <- convertMath TM.writeTypst mathType str
       case res of
@@ -529,16 +533,16 @@ inlineToTypst inline =
                     (if inlines == [Str src]
                           then mempty
                           else nowrap $ brackets contents)
-    Image attr _inlines (src,_tit) -> do
+    Image attr inlines (src,_tit) -> do
       opts <-  gets stOptions
-      pure $ mkImage opts True src attr
+      pure $ mkImage opts True src attr (getAlt attr inlines)
     Note blocks -> do
       contents <- blocksToTypst blocks
       return $ "#footnote" <> brackets (chomp contents)
 
 -- see #9104; need box or image is treated as block-level
-mkImage :: WriterOptions -> Bool -> Text -> Attr -> Doc Text
-mkImage opts useBox src attr
+mkImage :: WriterOptions -> Bool -> Text -> Attr -> Maybe Text -> Doc Text
+mkImage opts useBox src attr mbAlt
   | useBox = "#box" <> parens coreImage
   | otherwise = coreImage
  where
@@ -552,11 +556,33 @@ mkImage opts useBox src attr
      (case dimension Width attr of
         Nothing -> mempty
         Just dim -> ", width: " <> showDim dim)
+  altAttr = case mbAlt of
+              Just alt -> ", alt: " <> doubleQuoted alt
+              Nothing -> mempty
   isData = "data:" `T.isPrefixOf` src'
-  dataSvg = "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"><image xlink:href=\"" <> src' <> "\" /></svg>"
-  coreImage
-    | isData = "image.decode" <> parens(doubleQuoted dataSvg <> dimAttrs)
-    | otherwise = "image" <> parens (doubleQuoted src' <> dimAttrs)
+  eitherImageData = if isData
+                       then runPure (fetchItem src)
+                       else Left $ PandocSomeError "not a data URI"
+  toArray = parens . hcat . intersperse "," . map (literal . tshow) . B.unpack
+  attrs = dimAttrs <> altAttr
+  coreImage = "image" <> parens
+    (case eitherImageData of
+      Right (contents, Just "image/svg+xml")
+        -> "bytes" <> parens (doubleQuoted (UTF8.toText contents)) <> attrs
+      Right (bytes, _mime) -> "bytes" <> parens (toArray bytes) <> attrs
+      Left _ -> doubleQuoted src' <> attrs)
+
+-- | Extract alt text from image attributes and inlines.
+-- Use explicit alt attribute if present; otherwise use inlines.
+-- Empty alt="" means decorative image (no alt text).
+getAlt :: Attr -> [Inline] -> Maybe Text
+getAlt (_, _, kvs) imgInlines =
+  case lookup "alt" kvs of
+    Just "" -> Nothing  -- decorative
+    Just alt -> Just alt
+    Nothing -> case imgInlines of
+                 [] -> Nothing
+                 _ -> Just (stringify imgInlines)
 
 textstyle :: PandocMonad m => Doc Text -> [Inline] -> TW m (Doc Text)
 textstyle s inlines = do
@@ -593,13 +619,19 @@ escapeTypst smart context t =
       | otherwise = (c, T.snoc t' c)
     escapeChar c
       | c == '\160' = "~"
+      | c == '\8216', smart = "'" -- left quote
       | c == '\8217', smart = "'" -- apostrophe
+      | c == '\8220', smart = "\"" -- left double quote
+      | c == '\8221', smart = "\"" -- right double quote
       | c == '\8212', smart = "---" -- em dash
       | c == '\8211', smart = "--" -- en dash
       | needsEscape c = "\\" <> T.singleton c
       | otherwise = T.singleton c
     needsEscape '\160' = True
+    needsEscape '\8216' = smart
     needsEscape '\8217' = smart
+    needsEscape '\8220' = smart
+    needsEscape '\8221' = smart
     needsEscape '\8212' = smart
     needsEscape '\8211' = smart
     needsEscape '\'' = smart

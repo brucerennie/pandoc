@@ -1,13 +1,9 @@
 #let horizontalrule = line(start: (25%,0%), end: (75%,0%))
 
-#show terms: it => {
-  it.children
-    .map(child => [
-      #strong[#child.term]
-      #block(inset: (left: 1.5em, top: -0.4em))[#child.description]
-      ])
-    .join()
-}
+#show terms.item: it => block(breakable: false)[
+  #text(weight: "bold")[#it.term]
+  #block(inset: (left: 1.5em, top: -0.4em))[#it.description]
+]
 
 #set table(
   inset: 6pt,
@@ -198,8 +194,7 @@ item.
 
 Here's one with a bullet. \* criminey.
 
-There should be a hard line break \
-here.
+There should be a hard line break \ here.
 
 #horizontalrule
 
@@ -837,13 +832,13 @@ or here: <http://example.com/>
 <images>
 From "Voyage dans la Lune" by Georges Melies (1902):
 
-#figure(image("lalune.jpg"),
+#figure(image("lalune.jpg", alt: "lalune"),
   caption: [
     lalune
   ]
 )
 
-Here is a movie #box(image("movie.jpg")) icon.
+Here is a movie #box(image("movie.jpg", alt: "movie")) icon.
 
 #horizontalrule
 

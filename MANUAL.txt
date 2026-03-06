@@ -7170,8 +7170,10 @@ The following fields are recognized:
   ~ Either a string value or an object with fields `text` and
     `scheme`.  Valid values for `scheme` are `ISBN-10`,
     `GTIN-13`, `UPC`, `ISMN-10`, `DOI`, `LCCN`, `GTIN-14`,
-    `ISBN-13`, `Legal deposit number`, `URN`, `OCLC`,
-    `ISMN-13`, `ISBN-A`, `JP`, `OLCC`.
+    `ISBN-13`, `Legal deposit number`, `URN`, `OCLC number`,
+    `Co-publisher’s ISBN-13`, `ISMN-13`, `ISBN-A`, `JP e-code`,
+    `OLCC number`, `JP Magazine ID`, `UPC-12+5`, `BNF Control number`,
+    `ISSN-13`, `ARK`, `Digital file internal version number`.
 
 `title`
   ~ Either a string value, or an object with fields `file-as` and
@@ -7714,6 +7716,14 @@ custom-style `span`.
 
 For docx or odt output, you don't need to enable any extensions for
 custom styles to work.
+
+For icml output, you can also set an `object-style` in images:
+
+    ![Image with object style](myImage.jpg){object-style="fixedSizeImage"}
+
+In InDesign you'll see that object style given to the image,
+and you'll be able to customize it, or load its definition from
+a template of yours.
 
 [pandoc filters]: https://pandoc.org/filters.html
 

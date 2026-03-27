@@ -1,6 +1,6 @@
 cabal-version:   2.4
 name:            pandoc-cli
-version:         3.9
+version:         3.9.0.2
 build-type:      Simple
 license:         GPL-2.0-or-later
 license-file:    COPYING.md
@@ -60,7 +60,7 @@ common common-options
 
 common common-executable
   import:           common-options
-  ghc-options:      -rtsopts -with-rtsopts=-A8m -threaded
+  ghc-options:      -rtsopts -with-rtsopts=-A8m
 
 executable pandoc
   import:          common-executable
@@ -69,7 +69,7 @@ executable pandoc
   buildable:       True
   -- Note: we always link to an exact version of pandoc, with the
   -- same version as this package:
-  build-depends:   pandoc == 3.9, text
+  build-depends:   pandoc == 3.9.0.2, text
   other-modules:   PandocCLI.Lua
                  , PandocCLI.Server
 
@@ -79,6 +79,8 @@ executable pandoc
     cpp-options:    -DINCLUDE_WASM
     build-depends:  aeson, containers, bytestring, skylighting, filepath, pandoc-lua-engine
     ghc-options:    -optl-Wl,--export=__wasm_call_ctors,--export=hs_init_with_rtsopts,--export=malloc,--export=convert,--export=query
+  else
+    ghc-options: -threaded
 
   if flag(nightly)
     cpp-options:    -DNIGHTLY

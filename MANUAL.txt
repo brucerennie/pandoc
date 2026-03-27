@@ -1,7 +1,7 @@
 ---
 title: Pandoc User's Guide
 author: John MacFarlane
-date: 2025-02-02
+date: 2026-03-19
 ---
 
 # Synopsis
@@ -512,7 +512,7 @@ header when requesting a document from a URL:
 [Jira]: https://jira.atlassian.com/secure/WikiRendererHelpAction.jspa?section=all
 [txt2tags]: https://txt2tags.org
 [EPUB]: http://idpf.org/epub
-[OPML]: http://dev.opml.org/spec2.html
+[OPML]: https://opml.org/spec2.opml
 [OpenDocument XML]: https://www.oasis-open.org/2021/06/16/opendocument-v1-3-oasis-standard-published/
 [ODT]: https://en.wikipedia.org/wiki/OpenDocument
 [Plain Old Documentation]: https://perldoc.perl.org/perlpod
@@ -4597,19 +4597,19 @@ A definition begins with a colon or tilde, which may be indented one
 or two spaces.
 
 A term may have multiple definitions, and each definition may
-consist of one or more block elements (paragraph, code block,
-list, etc.), each indented four spaces or one tab stop.  The
-body of the definition (not including the first line)
-should be indented four spaces. However, as with
-other Markdown lists, you can "lazily" omit indentation except
-at the beginning of a paragraph or other block element:
+consist of one or more indented block elements (paragraph, code block,
+list, etc.). The blocks in the definition shoud be indented to the column
+of the first non-space content after the `:` or `~` marker, or
+(if the `four_space_rule` extension is enabled) four spaces or
+one tab stop. As with other Markdown lists, you can "lazily" omit
+indentation in paragraph continuation lines:
 
     Term 1
 
-    :   Definition
+    : Definition
     with lazy continuation.
 
-        Second paragraph of the definition.
+      Second paragraph of the definition.
 
 If you leave space before the definition (as in the example above),
 the text of the definition will be treated as a paragraph.  In some
@@ -5074,6 +5074,7 @@ hyphens (`---`) at the top and a line of three hyphens (`---`) or three dots
 (`...`) at the bottom.  The initial line `---` must not be followed by a blank
 line. A YAML metadata block may occur anywhere in the document, but if
 it is not at the beginning, it must be preceded by a blank line.
+(Note that JSON may be used as well, because JSON is a subset of YAML.)
 
 Note that, because of the way pandoc concatenates input files
 when several are provided, you may also keep the metadata in a

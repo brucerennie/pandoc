@@ -1199,7 +1199,9 @@ rawHtmlBlocks = do
         return (return (B.rawBlock "html" $ stripMarkdownAttribute raw) <>
                 contents <>
                 return (B.rawBlock "html" rawcloser)))
-      <|> return (return (B.rawBlock "html" raw) <> contents)
+      <|> if T.all isSpace raw
+             then return mempty
+             else return (return (B.rawBlock "html" raw) <> contents)
   updateState $ \st -> st{ stateInHtmlBlock = oldInHtmlBlock }
   return result
 
@@ -2086,7 +2088,7 @@ inlineNote = do
     char '^'
     updateState $ \st -> st{ stateInNote = True
                            , stateNoteNumber = stateNoteNumber st + 1 }
-    contents <- inBalancedBrackets inlines
+    contents <- withQuoteContext NoQuote $ inBalancedBrackets inlines
     notFollowedBy (char '(' <|> char '[' <|> ('{' <$ attributes))
       -- ^[link](foo)^ is superscript
     updateState $ \st -> st{ stateInNote = False }
@@ -2190,7 +2192,9 @@ rawHtmlInline = do
                              then (\x -> isInlineTag x &&
                                          not (isCloseBlockTag x))
                              else not . isTextTag
-  return $ return $ B.rawInline "html" result
+  return $ if T.all isSpace result
+              then return mempty
+              else return $ B.rawInline "html" result
 
 -- Emoji
 

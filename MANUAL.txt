@@ -1313,7 +1313,7 @@ header when requesting a document from a URL:
         To produce a custom `reference.docx`, first get a copy of
         the default `reference.docx`: `pandoc
         -o custom-reference.docx --print-default-data-file reference.docx`.
-        Then open `custom-reference.docx` in Word, modify the
+        Then open `custom-reference.docx` in Word or LibreOffice, modify the
         styles as you wish, and save the file.  For best
         results, do not make changes to this file other than
         modifying the styles used by pandoc:
@@ -3668,13 +3668,13 @@ automatically assigned a unique identifier based on the heading text.
 This extension can be enabled/disabled for the following formats:
 
 input formats
-:  `markdown`, `latex`, `rst`, `mediawiki`, `textile`
+:  `markdown`, `latex`, `rst`, `mediawiki`, `textile`, `man`
 
 output formats
 :  `markdown`, `muse`
 
 enabled by default in
-:  `markdown`, `muse`
+:  `markdown`, `muse`, `man`
 
 The default algorithm used to derive the identifier from the
 heading text is:

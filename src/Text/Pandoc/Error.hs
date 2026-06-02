@@ -160,7 +160,9 @@ handleError :: Either PandocError a -> IO a
 handleError (Right r) = return r
 handleError (Left e) =
   case e of
-    PandocIOError _ err' -> ioError err'
+    PandocIOError _ err' -> do
+      putStrLn $ displayException err'
+      exitWith (ExitFailure 1)
     _ -> err exitCode (renderError e)
  where
   exitCode =

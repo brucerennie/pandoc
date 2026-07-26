@@ -28,9 +28,10 @@ import Data.Default
 import Data.List (intersperse, sortOn, union, find)
 import Data.List.NonEmpty (nonEmpty, NonEmpty(..))
 import qualified Data.Map as M
-import Data.Maybe (fromMaybe, mapMaybe, isNothing)
+import Data.Maybe (fromMaybe, mapMaybe, isNothing, isJust)
 import qualified Data.Set as Set
 import Data.Text (Text)
+import Text.Read (readMaybe)
 import Data.Char (isSpace)
 import qualified Data.Text as T
 import Text.HTML.TagSoup (Tag (..), isTagText, parseTags)
@@ -55,6 +56,7 @@ import Text.Pandoc.Writers.Markdown.Types (MarkdownVariant(..),
                                            WriterState(..),
                                            WriterEnv(..),
                                            Ref, Refs, MD, evalMD)
+import Skylighting (lookupSyntax)
 
 -- | Convert Pandoc to Markdown.
 writeMarkdown :: PandocMonad m => WriterOptions -> Pandoc -> m Text
@@ -177,12 +179,20 @@ valToYaml (SimpleVal x)
       if hasNewlines x
          then hang 0 ("|" <> cr) x
          else case x of
-                Text _ t | isSpecialString t ->
+                Text _ t | isSpecialString t || looksLikeNumber t ->
                          "\"" <> fmap escapeInDoubleQuotes x <> "\""
                 _ | isNothing (foldM needsDoubleQuotes True x) ->
                          "\"" <> fmap escapeInDoubleQuotes x <> "\""
                   | otherwise -> x
     where
+      -- we need to put quotes around numbers that begin with 0
+      -- or have decimal points, because their YAML renderings
+      -- may differ. See #11715.
+      looksLikeNumber t = case readMaybe (T.unpack t) of
+                     Nothing -> False
+                     Just (_ :: Double) ->
+                       (T.any (== '.') t && T.takeEnd 1 t == "0") ||
+                       T.take 1 t == "0"
       isSpecialString t = Set.member t specialStrings
       specialStrings = Set.fromList
        ["y", "Y", "yes", "Yes", "YES", "n", "N",
@@ -596,7 +606,7 @@ blockToMarkdown' opts (CodeBlock attribs str) = do
                  then nowrap $ " " <> classOrAttrsToMarkdown opts attribs
                  else
                    let (_,cls,_) = attribs
-                    in case getLangFromClasses cls of
+                    in case getLangFromClasses opts cls of
                               Just l -> " " <> literal l
                               Nothing -> empty
 blockToMarkdown' opts (BlockQuote blocks) = do
@@ -714,13 +724,8 @@ blockToMarkdown' opts (OrderedList (start,sty,delim) items) = do
              | otherwise = DefaultDelim
   let attribs = (start', sty', delim')
   let markers  = orderedListMarkers attribs
-  let markers' = case variant of
-                        Markua -> markers
-                        _ -> map (\m -> if T.length m < 3
-                                   then m <> T.replicate (3 - T.length m) " "
-                                   else m) markers
   contents <- inList $
-              zipWithM (orderedListItemToMarkdown opts) markers' items
+              zipWithM (orderedListItemToMarkdown opts) markers items
   return $ (if isTightList items then vcat else vsep) contents <> blankline
 blockToMarkdown' opts (DefinitionList items) = do
   contents <- inList $ mapM (definitionListItemToMarkdown opts) items
@@ -833,15 +838,18 @@ orderedListItemToMarkdown opts marker bs = do
   let exts = writerExtensions opts
   contents <- blockListToMarkdown opts $ taskListItemToAscii exts bs
   variant <- asks envVariant
+  let beginsWithCodeBlock = case bs of
+                             CodeBlock{} : _ -> True
+                             _ -> False
   let sps = case writerTabStop opts - T.length marker of
-                   n | n > 0 -> literal $ T.replicate n " "
-                   _ -> literal " "
+                   _ | beginsWithCodeBlock -> 1 -- see #11762
+                   _ | variant == Markua -> 1
+                   n | n > 0 -> n
+                   _ -> 1
   let ind = if isEnabled Ext_four_space_rule opts
                then writerTabStop opts
-               else max (writerTabStop opts) (T.length marker + 1)
-  let start = case variant of
-              Markua -> literal marker <> " "
-              _      -> literal marker <> sps
+               else T.length marker + sps
+  let start = literal marker <> literal (T.replicate sps " ")
   -- remove trailing blank line if item ends with a tight list
   let contents' = if itemEndsWithTightList bs
                      then chomp contents <> cr
@@ -958,11 +966,11 @@ computeDivNestingLevel = foldr go 0
 
 -- Identify the class in a list of classes that corresponds to
 -- the language syntax.  language-X turns to X.
-getLangFromClasses :: [Text] -> Maybe Text
-getLangFromClasses cs =
+getLangFromClasses :: WriterOptions -> [Text] -> Maybe Text
+getLangFromClasses opts cs =
   case find ("language-" `T.isPrefixOf`) cs of
     Just x -> Just (T.drop 9 x)
     Nothing ->
-      case filter (/= "sourceCode") cs of
+      case [x | x <- cs, isJust (lookupSyntax x (writerSyntaxMap opts))] of
         (x:_) -> Just x
         [] -> Nothing

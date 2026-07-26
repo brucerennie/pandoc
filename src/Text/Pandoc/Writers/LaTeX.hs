@@ -56,6 +56,7 @@ import Text.Pandoc.Shared
 import Text.Pandoc.URI
 import Text.Pandoc.Slides
 import Text.Pandoc.Walk (query, walk, walkM)
+import Text.Pandoc.Writers.LaTeX.Util (getAccumulatedNotes)
 import Text.Pandoc.Writers.LaTeX.Caption (getCaption)
 import Text.Pandoc.Writers.LaTeX.Table (tableToLaTeX)
 import Text.Pandoc.Writers.LaTeX.Citation (citationsToNatbib,
@@ -64,7 +65,7 @@ import Text.Pandoc.Writers.LaTeX.Types (LW, WriterState (..), startingState,
                                         PdfStandard (..))
 import Text.Pandoc.Writers.LaTeX.Lang (toBabel)
 import Text.Pandoc.Writers.LaTeX.Util (stringToLaTeX, StringContext(..),
-                                       toLabel, inCmd,
+                                       toLabel, inCmd, withExternalNotes,
                                        wrapDiv, hypertarget, labelFor,
                                        getListingsLanguage, mbBraced)
 import Text.Pandoc.Writers.Shared
@@ -677,7 +678,7 @@ blockToLaTeX (Table attr blkCapt specs thead tbodies tfoot) =
                (Ann.toTable attr blkCapt specs thead tbodies tfoot)
 blockToLaTeX (Figure (ident, _, kvs) captnode body) = do
   opts <- gets stOptions
-  (capt, captForLof, footnotes) <- getCaption inlineListToLaTeX True captnode
+  (capt, captForLof) <- withExternalNotes $ getCaption inlineListToLaTeX captnode
   lab <- labelFor ident
   let caption = "\\caption" <> captForLof <> braces capt <> lab
       placement = case lookup "latex-placement" kvs of
@@ -715,7 +716,6 @@ blockToLaTeX (Figure (ident, _, kvs) captnode body) = do
     _ | isSubfigure ->
           innards
     _ ->  cr <> "\\begin{figure}" <> placement $$ innards $$ "\\end{figure}")
-    $$ footnotes
 
 toSubfigure :: PandocMonad m => Int -> Block -> LW m (Doc Text)
 toSubfigure nsubfigs blk = do
@@ -735,7 +735,16 @@ toSubfigure nsubfigs blk = do
 
 blockListToLaTeX :: PandocMonad m => [Block] -> LW m (Doc Text)
 blockListToLaTeX lst =
-  vsep `fmap` mapM (\b -> setEmptyLine True >> blockToLaTeX b) lst
+  vsep `fmap` mapM (\b -> setEmptyLine True >> blockToLaTeX' b) lst
+ where
+   blockToLaTeX' b = do
+     res <- blockToLaTeX b
+     externalNotes <- gets stExternalNotes
+     if externalNotes
+        then pure res
+        else do
+          notes <- getAccumulatedNotes
+          pure $ res $$ notes
 
 listItemToLaTeX :: PandocMonad m => Bool -> [Block] -> LW m (Doc Text)
 listItemToLaTeX isOrdered lst
@@ -762,9 +771,9 @@ listItemToLaTeX isOrdered lst
 defListItemToLaTeX :: PandocMonad m => ([Inline], [[Block]]) -> LW m (Doc Text)
 defListItemToLaTeX (term, defs) = do
     -- needed to turn off 'listings' because it breaks inside \item[...]:
-    modify $ \s -> s{stInItem = True}
-    term' <- inlineListToLaTeX term
-    modify $ \s -> s{stInItem = False}
+    modify $ \s -> s{ stInItem = True }
+    term' <- withExternalNotes $ inlineListToLaTeX term
+    modify $ \s -> s{ stInItem = False }
     -- put braces around term if it contains an internal link,
     -- since otherwise we get bad bracket interactions: \item[\hyperref[..]
     let isInternalLink (Link _ _ (src,_))
@@ -1219,10 +1228,9 @@ inlineToLaTeX (Image attr@(_,_,kvs) description (source, _)) = do
         options <> braces (literal source''))
 inlineToLaTeX (Note contents) = do
   setEmptyLine False
-  externalNotes <- gets stExternalNotes
-  modify (\s -> s{stInNote = True, stExternalNotes = True})
-  contents' <- blockListToLaTeX contents
-  modify (\s -> s {stInNote = False, stExternalNotes = externalNotes})
+  modify (\s -> s{stInNote = True })
+  contents' <- withExternalNotes $ blockListToLaTeX contents
+  modify (\s -> s {stInNote = False })
   let optnl = case reverse contents of
                    (CodeBlock _ _ : _) -> cr
                    _                   -> empty
@@ -1236,6 +1244,7 @@ inlineToLaTeX (Note contents) = do
                            then text "<.->[frame]"
                            else text "<\\value{beamerpauses}->[frame]"
                       else empty
+  externalNotes <- gets stExternalNotes
   if externalNotes
      then do
        modify $ \st -> st{ stNotes = noteContents : stNotes st }

@@ -138,6 +138,9 @@ pandocToTypst options (Pandoc meta blocks) = do
 pickTypstAttrs :: [(Text, Text)] -> ([(Text, Text)],[(Text, Text)])
 pickTypstAttrs = foldr go ([],[])
   where
+    go ("lang",lang)
+      | Right l <- parseLang lang
+      = second (("lang", tshow  (langLanguage l)):)
     go (k,v) =
       case T.splitOn ":" k of
         ["typst", "text", x] -> second ((x,v):)
@@ -232,7 +235,7 @@ blockToTypst block =
       contents <- blocksToTypst blocks
       return $ "#quote(block: true)[" $$ chomp contents $$ "]" $$ blankline
     HorizontalRule ->
-      return $ blankline <> "#horizontalrule" <> blankline
+      return $ blankline <> "#divider()" <> blankline
     OrderedList attribs items -> do
       let addBlock = case attribs of
                        (1, DefaultStyle, DefaultDelim) -> id
@@ -261,8 +264,11 @@ blockToTypst block =
       return $ (if isTightList items
                    then vcat items'
                    else vsep items') $$ blankline
-    DefinitionList items ->
-      ($$ blankline) . vsep <$> mapM defListItemToTypst items
+    DefinitionList items -> do
+      let concat' = if all (isTightList . snd) items
+                    then vcat
+                    else vsep
+      ($$ blankline) . concat' <$> mapM defListItemToTypst items
     Table (ident,tabclasses,tabkvs) (Caption _ caption) colspecs thead tbodies tfoot -> do
       let lab = toLabel FreestandingLabel ident
       capt' <- if null caption
@@ -385,17 +391,9 @@ blockToTypst block =
     Div (ident,_,kvs) blocks -> do
       let lab = toLabel FreestandingLabel ident
       let (typstAttrs,typstTextAttrs) = pickTypstAttrs kvs
-      -- Handle lang attribute for Div elements
-      let langAttrs = case lookup "lang" kvs of
-                        Nothing -> []
-                        Just lang -> case parseLang lang of
-                                       Left _ -> []
-                                       Right l -> [("lang",
-                                                    tshow (langLanguage l))]
-      let allTypstTextAttrs = typstTextAttrs ++ langAttrs
       contents <- blocksToTypst blocks
       return $ "#block" <> toTypstPropsListParens typstAttrs <> "["
-        $$ toTypstPoundSetText allTypstTextAttrs
+        $$ toTypstPoundSetText typstTextAttrs
         $$ contents
         $$ ("]" <+> lab)
 
@@ -405,7 +403,10 @@ defListItemToTypst (term, defns) = do
   term' <- inlinesToTypst term
   modify $ \st -> st{ stEscapeContext = NormalContext }
   defns' <- mapM blocksToTypst defns
-  return $ nowrap ("/ " <> term' <> ": " <> "#block[") $$
+  return $
+    case defns of
+      [[Plain _]] -> hang 4 (nowrap ("/ " <> term' <> ": ")) (vcat defns')
+      _ -> nowrap ("/ " <> term' <> ": " <> "#block[") $$
             chomp (vsep defns') $$ "]"
 
 listItemToTypst :: PandocMonad m => Int -> Doc Text -> [Block] -> TW m (Doc Text)

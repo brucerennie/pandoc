@@ -65,6 +65,7 @@
 - Caleb McDaniel
 - Caleb Mclennan
 - Calvin Beck
+- Can H. Tartanoglu
 - Carlos Scheidegger
 - Carlos Sosa
 - Carsten Allefeld
@@ -76,6 +77,7 @@
 - Charanjit Singh
 - Charles Tapley Hoyt
 - Charlotte Koch
+- Chirag Dhamange
 - Chris Black
 - Chris Callison-Burch
 - Christian Conkle
@@ -91,6 +93,7 @@
 - Cormac Relf
 - Craig S. Bosma
 - Damien Clochard
+- Dan Jacobson
 - Daniel Bergey
 - Daniel Kessler
 - Daniel Maslowski
@@ -118,6 +121,7 @@
 - Emerson Harkin
 - Emily Bourke
 - Emily Eisenberg
+- Enrico Spinielli
 - Eric Kow
 - Eric Schrijver
 - Eric Seidel
@@ -215,6 +219,7 @@
 - Jez Cope
 - Joe Hermaszewski
 - Joe Hillenbrand
+- Johan Larsson
 - John KetzerX
 - John Luke Bentley
 - John MacFarlane
@@ -237,6 +242,7 @@
 - Justin Bogner
 - Justin Wood
 - Karl Pettersson
+- Keenan Brock
 - Keiichiro Shikano
 - Kelsey Hightower
 - Kevin Broch
@@ -286,6 +292,7 @@
 - Max Bolingbroke
 - Max Heller
 - Max Rydahl Andersen
+- Meher Chaitanya
 - Merijn Verstraaten
 - Michael Beaumont
 - Michael Chladek
@@ -358,6 +365,7 @@
 - Recai Oktaş
 - Repetitive
 - Reuben Thomas
+- Robertas
 - Rowan Rodrik van der Molen
 - Roland Hieber
 - Roman Beránek
@@ -365,6 +373,7 @@
 - RyanGlScott
 - Ryan Gibb
 - S.P.H
+- Sai Asish Y
 - Salim B
 - Sam S. Almahri
 - Sam May
@@ -373,6 +382,7 @@
 - Santiago Zarate
 - Sascha Wilde
 - Scott Morrison
+- Scott Talbert
 - Sean Soon
 - Sebastian Talmon
 - Sebbones
@@ -417,6 +427,7 @@
 - Timm Albers
 - Timothy Humphries
 - Tiziano Müller
+- Tobias Deiminger
 - Todd Sifleet
 - Tomas Dahlqvist
 - TomBen
@@ -485,6 +496,7 @@
 - kaizshang91
 - lawcho
 - lifeunleaded
+- luginf
 - lux-lth
 - luz paz
 - lwolfsonkin
@@ -495,6 +507,7 @@
 - mjfs
 - mt_caret
 - nbehrnd
+- nibras shami
 - niszet
 - nkalvi
 - nuew

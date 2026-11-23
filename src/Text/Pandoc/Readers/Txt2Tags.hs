@@ -18,6 +18,7 @@ module Text.Pandoc.Readers.Txt2Tags ( readTxt2Tags
 import Control.Monad (guard, void, when)
 import Control.Monad.Except (catchError, throwError)
 import Control.Monad.Reader (Reader, asks, runReader)
+import Data.Char (isAlphaNum)
 import Data.Default
 import Data.List (intercalate, transpose)
 import Data.List.NonEmpty (nonEmpty)
@@ -33,7 +34,7 @@ import Data.Time (defaultTimeLocale)
 import Text.Pandoc.Definition
 import Text.Pandoc.Options
 import Text.Pandoc.Parsing hiding (space, spaces, uri)
-import Text.Pandoc.Shared (compactify, compactifyDL)
+import Text.Pandoc.Shared (compactify, compactifyDL, compactifyTable)
 import Text.Pandoc.URI (escapeURI)
 
 type T2T = ParsecT Sources ParserState (Reader T2TMeta)
@@ -132,7 +133,7 @@ type Value = Text
 setting :: T2T (Keyword, Value)
 setting = do
   string "%!"
-  keyword <- ignoreSpacesCap (many1Char alphaNum)
+  keyword <- ignoreSpacesCap (takeWhile1P isAlphaNum)
   char ':'
   value <- ignoreSpacesCap (manyTillChar anyChar newline)
   return (keyword, value)
@@ -274,7 +275,8 @@ table = try $ do
   let headerPadded = if null tableHeader then mempty else pad size tableHeader
   let toRow = Row nullAttr . map B.simpleCell
       toHeaderRow l = [toRow l | not (null l)]
-  return $ B.table B.emptyCaption
+  return $ compactifyTable
+         $ B.table B.emptyCaption
                     (zip aligns (replicate ncolumns ColWidthDefault))
                       (TableHead nullAttr $ toHeaderRow headerPadded)
                       [TableBody nullAttr 0 [] $ map toRow rowsPadded]
@@ -415,7 +417,7 @@ inlineMarkup :: Monoid a
              -> (Text -> a) -- Special Case to handle ******
              -> T2T Inlines
 inlineMarkup p f c special = try $ do
-  start <- many1Char (char c)
+  start <- takeWhile1P (== c)
   let l = T.length start
   guard (l >= 2)
   when (l == 2) (void $ notFollowedBy space)
@@ -426,7 +428,7 @@ inlineMarkup p f c special = try $ do
   case body of
     Just middle -> do
       lastChar <- anyChar
-      end <- many1Char (char c)
+      end <- takeWhile1P (== c)
       let parser inp = parseFromString' (mconcat <$> many p) inp
       let start' = case T.drop 2 start of
                           "" -> mempty
@@ -518,7 +520,7 @@ t2tURI :: T2T Text
 t2tURI = do
   start <- try ((<>) <$> proto <*> urlLogin) <|> guess
   domain <- many1Char chars
-  sep <- manyChar (char '/')
+  sep <- takeWhileP (== '/')
   form' <- option mempty (T.cons <$> char '?' <*> many1Char form)
   anchor' <- option mempty (T.cons <$> char '#' <*> manyChar anchor)
   return (start <> domain <> sep <> form' <> anchor')
@@ -528,7 +530,7 @@ t2tURI = do
     guess = (<>) <$> (((<>) <$> stringAnyCase "www" <*> option mempty (T.singleton <$> oneOf "23"))
               <|> stringAnyCase "ftp") <*> (T.singleton <$> char '.')
     login = alphaNum <|> oneOf "_.-"
-    pass = manyChar (noneOf " @")
+    pass = takeWhileP (\x -> x /= ' ' && x /= '@')
     chars = alphaNum <|> oneOf "%._/~:,=$@&+-"
     anchor = alphaNum <|> oneOf "%._0"
     form = chars <|> oneOf ";*"
@@ -547,6 +549,27 @@ image =  try $ do
 -- Characters used in markup
 specialChars :: [Char]
 specialChars = "%*-_/|:+;"
+
+-- | True for characters that terminate a run of plain text, i.e. the
+-- 'specialChars' plus newlines and spaces.  Written as a @case@ so that
+-- GHC compiles it to a jump table; this is applied to every single
+-- character of the input, so a linear scan over the list here is a
+-- significant cost.  Must be kept in sync with 'specialChars'.
+isStrEnd :: Char -> Bool
+isStrEnd c = case c of
+  '\n' -> True
+  '\r' -> True
+  ' '  -> True
+  '%'  -> True
+  '*'  -> True
+  '+'  -> True
+  '-'  -> True
+  '/'  -> True
+  ':'  -> True
+  ';'  -> True
+  '_'  -> True
+  '|'  -> True
+  _    -> False
 
 tab :: T2T Char
 tab = char '\t'
@@ -572,7 +595,7 @@ endline = try $ do
   return B.softbreak
 
 str :: T2T Inlines
-str = try $ B.str <$> many1Char (noneOf $ specialChars ++ "\n\r ")
+str = try $ B.str <$> takeWhile1P (not . isStrEnd)
 
 whitespace :: T2T Inlines
 whitespace = try $ B.space <$ spaceChar

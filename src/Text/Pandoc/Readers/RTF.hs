@@ -16,6 +16,7 @@ We target version 1.5 of the RTF spec.
 module Text.Pandoc.Readers.RTF (readRTF) where
 
 import qualified Data.IntMap as IntMap
+import qualified Data.IntSet as IntSet
 import qualified Data.Sequence as Seq
 import Control.Monad
 import Control.Monad.Except (throwError)
@@ -34,7 +35,7 @@ import Text.Pandoc.Options
 import Text.Pandoc.Parsing
 import Text.Pandoc.Logging (LogMessage(UnsupportedCodePage))
 import Text.Pandoc.Shared (tshow)
-import Data.Char (isAlphaNum, chr, isAscii, isLetter, isSpace, ord)
+import Data.Char (chr, isAscii, isLetter, isSpace, ord)
 import qualified Data.ByteString.Lazy as BL
 import Data.Maybe (mapMaybe, fromMaybe)
 import Safe (lastMay, initSafe, headDef)
@@ -67,8 +68,7 @@ data RTFState = RTFState  { sOptions     :: ReaderOptions
                           , sCharSet     :: CharSet
                           , sGroupStack  :: [Properties]
                           , sListStack   :: [List]
-                          , sCurrentCell :: Blocks
-                          , sTableRows   :: [TableRow] -- reverse order
+                          , sTables      :: IntMap.IntMap TableState
                           , sTextContent :: [(Properties, Text)]
                           , sMetadata    :: [(Text, Inlines)]
                           , sFontTable   :: FontTable
@@ -83,6 +83,12 @@ data RTFState = RTFState  { sOptions     :: ReaderOptions
                                                  -- paragraph numbering is in
                                                  -- effect; every paragraph in
                                                  -- scope is its own list item
+                          , sPendingSurrogate :: Maybe Word16
+                                                 -- A high surrogate from a \u
+                                                 -- control word, held back
+                                                 -- until we know whether the
+                                                 -- low surrogate completing it
+                                                 -- follows
                           } deriving (Show)
 
 instance Default RTFState where
@@ -90,8 +96,7 @@ instance Default RTFState where
                 , sCharSet = ANSI
                 , sGroupStack = []
                 , sListStack = []
-                , sCurrentCell = mempty
-                , sTableRows = []
+                , sTables = mempty
                 , sTextContent = []
                 , sMetadata = []
                 , sFontTable = mempty
@@ -101,6 +106,7 @@ instance Default RTFState where
                 , sEatChars = 0
                 , sListText = False
                 , sPnActive = False
+                , sPendingSurrogate = Nothing
                 }
 
 type FontTable = IntMap.IntMap FontFamily
@@ -170,6 +176,7 @@ data Properties =
   , gListOverride :: Maybe Override
   , gListLevel :: Maybe Int
   , gInTable :: Bool
+  , gTableLevel :: Int
   } deriving (Show, Eq)
 
 instance Default Properties where
@@ -192,6 +199,7 @@ instance Default Properties where
                     , gListOverride = Nothing
                     , gListLevel = Nothing
                     , gInTable = False
+                    , gTableLevel = 0
                     }
 
 type RTFParser m = ParsecT Sources RTFState m
@@ -209,6 +217,17 @@ data List =
 
 newtype TableRow = TableRow [Blocks] -- cells in reverse order
     deriving (Show, Eq)
+
+data TableState = TableState
+  { tableCurrentCell :: Blocks
+  , tableRows :: [TableRow] -- reverse order, current row first
+  } deriving (Show, Eq)
+
+emptyTableState :: TableState
+emptyTableState = TableState
+  { tableCurrentCell = mempty
+  , tableRows = []
+  }
 
 parseRTF :: PandocMonad m => RTFParser m Pandoc
 parseRTF = do
@@ -243,7 +262,8 @@ tok = do
      <|> (ControlSymbol <$> anyChar) )
   controlWord = do
     name <- letterSequence
-    param <- parameter <* optional delimChar
+    param <- parameter
+    optional (char ' ')
     case name of
       "bin" -> do
         let n = fromMaybe 0 param
@@ -275,11 +295,11 @@ tok = do
     x <- hexDigit
     y <- hexDigit
     return $ hexToWord (T.pack [x,y])
-  letterSequence = T.pack <$> many1 (satisfy (\c -> isAscii c && isLetter c))
+  letterSequence = takeWhile1P (\c -> isAscii c && isLetter c)
   unformattedText = do
-    ts <-  filter (\c -> c /= '\r' && c /= '\n') <$>
-           ( many1 (satisfy (\c -> not (isSpecial c) || c == '\r' || c == '\n')))
-    return $! UnformattedText $! T.pack ts
+    ts <-  T.filter (\c -> c /= '\r' && c /= '\n') <$>
+           takeWhile1P (\c -> not (isSpecial c) || c == '\r' || c == '\n')
+    return $! UnformattedText ts
   grouped = do
     char '{'
     skipMany nl
@@ -300,9 +320,6 @@ isSpecial '}' = True
 isSpecial '\\' = True
 isSpecial '\n' = True
 isSpecial _ = False
-
-delimChar :: PandocMonad m => RTFParser m Char
-delimChar = satisfy (\c -> not (isAlphaNum c || isSpecial c))
 
 modifyGroup :: PandocMonad m
             => (Properties -> Properties)
@@ -374,11 +391,45 @@ addFormatting (props, txt) =
 
 addText :: PandocMonad m => Text -> RTFParser m ()
 addText t = do
+  -- A high surrogate held back by 'addUnicodeCodeUnit' can only be completed
+  -- by the next \u control word, so any text in between means it was
+  -- unpaired.  Empty text does not count: consuming a \u's fallback
+  -- characters ends in adding the empty remainder of them, and that happens
+  -- between the two halves of a surrogate pair.
+  unless (T.null t) $
+    updateState $ \s -> s{ sPendingSurrogate = Nothing }
   gs <- sGroupStack <$> getState
   let !props = case gs of
                 (x:_) -> x
                 _ -> def
   updateState (\s -> s{ sTextContent = (props, t) : sTextContent s })
+
+-- | Add the character denoted by the argument of a @\\u@ control word, which
+-- is a single UTF-16 code unit.  A character outside the Basic Multilingual
+-- Plane is written as a surrogate pair, that is, as two consecutive @\\u@
+-- words, each followed by its own fallback characters, so a high surrogate is
+-- held back until we know whether the low surrogate completing it follows.
+-- An unpaired surrogate denotes no character and cannot be represented in
+-- 'Text', so it is dropped.
+addUnicodeCodeUnit :: PandocMonad m => Word16 -> RTFParser m ()
+addUnicodeCodeUnit unit = do
+  mbHigh <- sPendingSurrogate <$> getState
+  updateState $ \s -> s{ sPendingSurrogate = Nothing }
+  case mbHigh of
+    Just high | isLowSurrogate unit ->      -- a complete pair
+      addText $ T.singleton $ chr $
+        0x10000 + (fromIntegral high - 0xD800) * 0x400
+                + (fromIntegral unit - 0xDC00)
+    _ | isHighSurrogate unit ->             -- wait for the low surrogate
+          updateState $ \s -> s{ sPendingSurrogate = Just unit }
+      | isLowSurrogate unit -> pure ()      -- unpaired, so dropped
+      | otherwise -> addText $ T.singleton $ chr $ fromIntegral unit
+
+isHighSurrogate :: Word16 -> Bool
+isHighSurrogate unit = unit >= 0xD800 && unit <= 0xDBFF
+
+isLowSurrogate :: Word16 -> Bool
+isLowSurrogate unit = unit >= 0xDC00 && unit <= 0xDFFF
 
 inGroup :: PandocMonad m => RTFParser m a -> RTFParser m a
 inGroup p = do
@@ -398,12 +449,16 @@ inGroup p = do
 getStyleFormatting :: PandocMonad m => Int -> RTFParser m [Tok]
 getStyleFormatting stynum = do
   stylesheet <- sStylesheet <$> getState
-  case IntMap.lookup stynum stylesheet of
-    Nothing -> return []
-    Just sty ->
-      case styleBasedOn sty of
-        Just i -> (<> styleFormatting sty)  <$> getStyleFormatting i
-        Nothing -> return $ styleFormatting sty
+  let go visited n =
+        case IntMap.lookup n stylesheet of
+          Nothing -> []
+          Just sty ->
+            case styleBasedOn sty of
+              -- ignore a cyclic \sbasedon chain (#12121):
+              Just i | not (IntSet.member i visited)
+                -> go (IntSet.insert i visited) i <> styleFormatting sty
+              _ -> styleFormatting sty
+  return $ go (IntSet.singleton stynum) stynum
 
 isMetadataField :: Text -> Bool
 isMetadataField "title" = True
@@ -462,6 +517,8 @@ processTok bs (Tok pos tok') = do
         Tok _ (ControlWord "shppict" _) -> inGroup (foldM processTok bs toks)
         Tok _ (ControlWord "shpinst" _) -> inGroup (foldM processTok bs toks)
         Tok _ (ControlWord "pn" _) -> bs <$ handlePn toks
+        Tok _ (ControlWord "nesttableprops" _) ->
+          bs <$ inGroup (handleNestedTableProperties toks)
         _ -> bs <$ (do oldTextContent <- sTextContent <$> getState
                        processTok mempty (Tok pos (Grouped toks))
                        updateState $ \st -> st{ sTextContent = oldTextContent })
@@ -538,6 +595,9 @@ processTok bs (Tok pos tok') = do
       return bs
     Grouped (Tok _ (ControlWord "info" _) : toks) ->
       bs <$ inGroup (processDestinationToks toks)
+    -- Fallback text for RTF readers which do not support nested tables.
+    -- Supporting readers must ignore this destination.
+    Grouped (Tok _ (ControlWord "nonesttables" _) : _) -> pure bs
     Grouped (Tok _ (ControlWord f _) : toks) | isMetadataField f -> inGroup $ do
       foldM_ processTok mempty toks
       annotatedToks <- reverse . sTextContent <$> getState
@@ -584,26 +644,33 @@ processTok bs (Tok pos tok') = do
       modifyGroup (\g -> g{ gListOverride = mbp })
     ControlWord "ilvl" mbp -> bs <$
       modifyGroup (\g -> g{ gListLevel = mbp })
+    ControlWord "itap" (Just level) -> do
+      let level' = max 0 level
+      bs' <- emitBlocks bs
+      closed <- closeTablesAbove level'
+      modifyGroup (\g -> g{ gInTable = level' > 0
+                          , gTableLevel = level' })
+      pure $ bs' <> closed
     ControlSymbol '\\' -> bs <$ addText "\\"
     ControlSymbol '{' -> bs <$ addText "{"
     ControlSymbol '}' -> bs <$ addText "}"
     ControlSymbol '~' -> bs <$ addText "\x00a0"
     ControlSymbol '-' -> bs <$ addText "\x00ad"
     ControlSymbol '_' -> bs <$ addText "\x2011"
-    ControlWord "trowd" _ -> bs <$ beginTableRow -- begin new row
-    ControlWord "row" _ -> bs <$ beginTableRow -- end current row
-    ControlWord "cell" _ -> bs <$ do
-      new <- emitBlocks mempty
-      curCell <- (<> new) . sCurrentCell <$> getState
-      updateState $ \s -> s{ sTableRows =
-                                case sTableRows s of
-                                  TableRow cs : rs ->
-                                    TableRow (curCell : cs) : rs
-                                  [] -> [TableRow [curCell]] -- shouldn't happen
-                           , sCurrentCell = mempty }
+    ControlWord "trowd" _ -> bs <$ beginTableRow 1 -- begin top-level row
+    ControlWord "row" _ -> bs <$ beginTableRow 1 -- end top-level row
+    ControlWord "cell" _ -> bs <$ endTableCell 1
+    ControlWord "nestcell" _ -> bs <$ do
+      level <- getTableLevel 2
+      endTableCell level
+    ControlWord "nestrow" _ -> bs <$ do
+      level <- getTableLevel 2
+      beginTableRow level
     ControlWord "intbl" _ -> do
       ls <- closeLists 0 -- see #11364
-      ((ls <>) <$> emitBlocks bs) <* modifyGroup (\g -> g{ gInTable = True })
+      ((ls <>) <$> emitBlocks bs) <*
+        modifyGroup (\g -> g{ gInTable = True
+                            , gTableLevel = max 1 (gTableLevel g) })
     ControlWord "plain" _ -> bs <$ modifyGroup resetCharProps
     ControlWord "lquote" _ -> bs <$ addText "\x2018"
     ControlWord "rquote" _ -> bs <$ addText "\x2019"
@@ -637,9 +704,7 @@ processTok bs (Tok pos tok') = do
       -- "RTF control words generally accept signed 16-bit numbers as
       -- arguments. For this reason, Unicode values greater than 32767
       -- must be expressed as negative numbers."
-      let codepoint :: Word16
-          codepoint = fromIntegral i
-      addText (T.singleton (chr $ fromIntegral codepoint))
+      addUnicodeCodeUnit (fromIntegral i)
     ControlWord "caps" mbp -> bs <$
       modifyGroup (\g -> g{ gCaps = boolParam mbp })
     ControlWord "deleted" mbp -> bs <$
@@ -719,37 +784,112 @@ closeLists lvl = do
           closeLists lvl
     _ -> pure mempty
 
--- Begin a new table row.  Both @\\trowd@ (which sets row defaults) and
--- @\\row@ (which ends a row) start a fresh row to be filled by subsequent
--- @\\cell@s.  We only push a new empty row when the current one already has
--- cells, so that documents repeating @\\trowd@ after @\\row@ (or omitting
--- @\\trowd@ between rows) both produce the same flat structure.
-beginTableRow :: PandocMonad m => RTFParser m ()
-beginTableRow =
-  updateState $ \s ->
-    s{ sTableRows = case sTableRows s of
-                      TableRow [] : _ -> sTableRows s
-                      rs -> TableRow [] : rs
-     , sCurrentCell = mempty }
+-- Return the current paragraph's table nesting level.  Nested-table control
+-- words should never occur without @\\itapN@, but the supplied default lets us
+-- handle malformed input without accidentally modifying the top-level table.
+getTableLevel :: PandocMonad m => Int -> RTFParser m Int
+getTableLevel fallback = do
+  groups <- sGroupStack <$> getState
+  pure $ case groups of
+    g : _ | gTableLevel g > 0 -> gTableLevel g
+    _ -> fallback
 
-closeTable :: PandocMonad m => RTFParser m Blocks
-closeTable = do
-  rawrows <- sTableRows <$> getState
-  if null rawrows
-     then return mempty
-     else do
-       let getCells (TableRow cs) = reverse cs
-       -- drop empty rows produced by row terminators
-       let rows = filter (not . null) . map getCells . reverse $ rawrows
-       updateState $ \s -> s{ sCurrentCell = mempty
-                            , sTableRows = [] }
-       if null rows
-          then return mempty
-          else return $ B.simpleTable [] rows
+modifyTable :: PandocMonad m
+            => Int
+            -> (TableState -> TableState)
+            -> RTFParser m ()
+modifyTable level f =
+  updateState $ \s ->
+    s{ sTables = IntMap.alter
+          (Just . f . fromMaybe emptyTableState)
+          level
+          (sTables s) }
+
+appendToTableCell :: PandocMonad m => Int -> Blocks -> RTFParser m ()
+appendToTableCell level blocks =
+  modifyTable level $ \tbl ->
+    tbl{ tableCurrentCell = tableCurrentCell tbl <> blocks }
+
+-- Begin a new table row.  Both @\\trowd@ (which sets row defaults) and
+-- @\\row@/@\\nestrow@ (which end a row) start a fresh row to be filled by
+-- subsequent cells.  Only push a new empty row when the current one already
+-- has cells, so repeated row definitions do not create blank rows.
+beginTableRow :: PandocMonad m => Int -> RTFParser m ()
+beginTableRow level =
+  modifyTable level $ \tbl ->
+    tbl{ tableRows = case tableRows tbl of
+                       TableRow [] : _ -> tableRows tbl
+                       rs -> TableRow [] : rs
+       , tableCurrentCell = mempty }
+
+-- Close all tables deeper than the given level.  Each completed nested table
+-- becomes a block in the current cell of the nearest active enclosing level.
+-- Some real-world RTF jumps directly from (for example) @\\itap3@ to
+-- @\\itap5@, so the numeric predecessor is not necessarily the parent.
+closeTablesAbove :: PandocMonad m => Int -> RTFParser m Blocks
+closeTablesAbove target = do
+  tables <- sTables <$> getState
+  case IntMap.lookupMax tables of
+    Just (level, _) | level > target -> do
+      mbTable <- closeTable level
+      remaining <- sTables <$> getState
+      let mbParent =
+            case IntMap.lookupMax remaining of
+              Just (parent, _) | parent >= target -> Just parent
+              _ | target > 0 -> Just target
+                | otherwise -> Nothing
+      here <- case mbTable of
+        Nothing -> pure mempty
+        Just table -> case mbParent of
+          Just parent -> mempty <$ appendToTableCell parent table
+          Nothing -> pure table
+      rest <- closeTablesAbove target
+      pure $ here <> rest
+    _ -> pure mempty
+
+closeTable :: PandocMonad m => Int -> RTFParser m (Maybe Blocks)
+closeTable level = do
+  mbTable <- IntMap.lookup level . sTables <$> getState
+  updateState $ \s -> s{ sTables = IntMap.delete level (sTables s) }
+  case mbTable of
+    Nothing -> pure Nothing
+    Just tbl -> do
+      let getCells (TableRow cs) = reverse cs
+      -- Drop empty rows produced by row terminators.
+      let rows = filter (not . null) . map getCells . reverse $
+                   tableRows tbl
+      pure $ if null rows
+                then Nothing
+                else Just $ B.simpleTable [] rows
+
+endTableCell :: PandocMonad m => Int -> RTFParser m ()
+endTableCell level = do
+  -- Flush pending paragraph text first.  emitBlocks appends it to the table
+  -- level recorded on the paragraph properties.
+  void $ emitBlocks mempty
+  -- A parent cell may end immediately after a nested row, without another
+  -- explicit @\\itap@ transition back to the parent.
+  void $ closeTablesAbove level
+  modifyTable level $ \tbl ->
+    let cell = tableCurrentCell tbl
+    in tbl{ tableRows =
+              case tableRows tbl of
+                TableRow cells : rows -> TableRow (cell : cells) : rows
+                [] -> [TableRow [cell]]
+          , tableCurrentCell = mempty }
+
+handleNestedTableProperties :: PandocMonad m => [Tok] -> RTFParser m ()
+handleNestedTableProperties toks =
+  when (any isNestedRowEnd toks) $ do
+    level <- getTableLevel 2
+    beginTableRow level
+ where
+  isNestedRowEnd (Tok _ (ControlWord "nestrow" _)) = True
+  isNestedRowEnd _ = False
 
 closeContainers :: PandocMonad m => RTFParser m Blocks
 closeContainers = do
-  tbl <- closeTable
+  tbl <- closeTablesAbove 0
   lists <- closeLists 0
   return $ tbl <> lists
 
@@ -773,7 +913,7 @@ emitBlocks bs = do
                ((p,_):_) -> p
   tbl <- if gInTable prop || null annotatedToks
             then pure mempty
-            else closeTable
+            else closeTablesAbove 0
   new <-
     case annotatedToks of
       [] -> pure mempty
@@ -838,7 +978,7 @@ emitBlocks bs = do
                 $ map addFormatting annotatedToks)
   if gInTable prop
      then do
-       updateState $ \s -> s{ sCurrentCell = sCurrentCell s <> new }
+       appendToTableCell (max 1 $ gTableLevel prop) new
        pure bs
      else do
        pure $ bs <> tbl <> new

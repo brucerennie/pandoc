@@ -15,16 +15,20 @@ module Text.Pandoc.Readers.Pptx.Slides
   ) where
 
 import Codec.Archive.Zip (Archive)
+import Control.Applicative ((<|>))
 import Data.List (find)
-import Data.Maybe (mapMaybe)
+import qualified Data.Map as M
+import Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Text as T
 import Data.Text (Text)
+import qualified Text.Pandoc.Builder as B
 import Text.Pandoc.Class.PandocMonad (PandocMonad)
 import Text.Pandoc.Definition
 import Text.Pandoc.Options (ReaderOptions)
 import Text.Pandoc.Readers.OOXML.Shared
 import Text.Pandoc.Readers.Pptx.Parse
 import Text.Pandoc.Readers.Pptx.Shapes
+import Text.Pandoc.Shared (stringify)
 import Text.Pandoc.XML.Light
 
 -- | Convert Pptx intermediate representation to Pandoc AST
@@ -42,7 +46,7 @@ pptxToOutput _opts pptx = do
 slideToBlocks :: PandocMonad m => Archive -> PptxSlide -> m [Block]
 slideToBlocks archive slide = do
   let SlideId n = slideId slide
-      slideElem = slideElement slide
+      slideElem = resolveAlternateContent (slideElement slide)
       rels = slideRels slide
       ns = elemToNameSpaces slideElem
 
@@ -54,19 +58,60 @@ slideToBlocks archive slide = do
       headerText = if T.null title
                    then "Slide " <> T.pack (show n)
                    else title
-      header = Header 2 (slideIdent, [], []) [Str headerText]
+      -- A slide hidden from the slide show (show="0") is still read,
+      -- with a "hidden" class on its header.
+      classes = ["hidden" | findAttr (unqual "show") slideElem == Just "0"]
+      header = Header 2 (slideIdent, classes, [])
+                 (B.toList (B.text headerText))
 
   -- Parse shapes and convert to blocks
   case findChildByName ns "p" "cSld" slideElem >>=
        findChildByName ns "p" "spTree" of
-    Nothing -> return [header]
+    Nothing -> return $ header : notesBlocks
     Just spTree -> do
       -- Filter out title placeholder shapes before parsing
-      let allShapeElems = onlyElems $ elContent spTree
+      let allShapeElems = ungroupShapes ns (onlyElems $ elContent spTree)
           nonTitleShapeElems = filter (not . isTitlePlaceholder ns) allShapeElems
-          shapes = mapMaybe (parseShape ns) nonTitleShapeElems
+          inherited = inheritedBullets (slideLayout slide) (slideMaster slide)
+          shapes = mapMaybe (\el -> parseShapeWith (inherited el) ns el)
+                            nonTitleShapeElems
       shapeBlocks <- concat <$> mapM (shapeToBlocks archive rels) shapes
-      return $ header : shapeBlocks
+      return $ header : shapeBlocks ++ notesBlocks
+  where
+    notesBlocks = maybe [] notesToBlocks (slideNotes slide)
+
+-- | Convert a notes slide (@p:notes@) to a @notes@ div, the form the pptx
+-- writer turns into speaker notes. The notes text is in the shape holding
+-- the body placeholder; the slide image and slide number placeholders are
+-- ignored. Notes without text yield nothing.
+notesToBlocks :: Element -> [Block]
+notesToBlocks notesElem =
+  case filter isBody shapeElems >>= textBoxBlocks of
+    blocks | T.null (T.strip (stringify blocks)) -> []
+           | otherwise -> [Div ("", ["notes"], []) blocks]
+  where
+    ns = elemToNameSpaces notesElem
+    shapeElems = maybe [] elChildren $
+      findChildByName ns "p" "cSld" notesElem >>=
+      findChildByName ns "p" "spTree"
+    isBody el =
+      case findChildByName ns "p" "nvSpPr" el >>=
+           findChildByName ns "p" "nvPr" >>=
+           findChildByName ns "p" "ph" of
+        Just ph -> findAttr (unqual "type") ph == Just "body"
+        Nothing -> False
+    textBoxBlocks el = case parseShape ns el of
+      Just (PptxTextBox paras) -> paragraphsToBlocks paras
+      _ -> []
+
+-- | Replace each group shape (@p:grpSp@, possibly nested) by the shapes
+-- it contains, keeping document order.
+ungroupShapes :: NameSpaces -> [Element] -> [Element]
+ungroupShapes ns = concatMap ungroup
+  where
+    ungroup el
+      | isElem ns "p" "grpSp" el = ungroupShapes ns (elChildren el)
+      | otherwise = [el]
 
 -- | Extract title from title placeholder
 extractSlideTitle :: NameSpaces -> Element -> Text
@@ -81,3 +126,38 @@ extractSlideTitle ns slideElem =
        in maybe "" extractDrawingMLText titleShape
 
 -- isTitlePlaceholder is imported from Shapes module
+
+-- | Replace each markup-compatibility block (@mc:AlternateContent@) by
+-- the content of its first @mc:Choice@ whose required namespaces the
+-- reader understands, or else by its @mc:Fallback@. PowerPoint and the
+-- pptx writer put the shapes holding equations (@a14:m@) in such blocks.
+resolveAlternateContent :: Element -> Element
+resolveAlternateContent = resolve mempty
+  where
+    resolve ns el =
+      let ns' = elemToNameSpaces el <> ns
+       in el{ elContent = concatMap (content ns') (elContent el) }
+    content ns (Elem el)
+      | isMce "AlternateContent" el =
+          let ns' = elemToNameSpaces el <> ns
+              branches = elChildren el
+              chosen = find (understood ns') branches <|>
+                       find (isMce "Fallback") branches
+           in case chosen of
+                Just branch ->
+                  concatMap (content (elemToNameSpaces branch <> ns'))
+                            (elContent branch)
+                Nothing -> []
+      | otherwise = [Elem (resolve ns el)]
+    content _ c = [c]
+    understood ns branch =
+      isMce "Choice" branch &&
+      all (\prefix -> M.lookup prefix (elemToNameSpaces branch <> ns)
+                         `elem` map Just understoodNamespaces)
+          (T.words $ fromMaybe "" $ findAttr (unqual "Requires") branch)
+    isMce name el =
+      qName (elName el) == name &&
+      qURI (elName el) ==
+        Just "http://schemas.openxmlformats.org/markup-compatibility/2006"
+    understoodNamespaces =
+      [ "http://schemas.microsoft.com/office/drawing/2010/main" ] -- a14

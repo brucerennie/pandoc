@@ -24,13 +24,14 @@ import Text.Pandoc.Builder (Inlines, Many(..), deleteMeta, setMeta)
 import qualified Text.Pandoc.Builder as B
 import Text.Pandoc.Definition as Pandoc
 import Text.Pandoc.Class (PandocMonad(..), getResourcePath, getUserDataDir,
+                          getPandocDataDirs,
                           fetchItem, report, setResourcePath, toTextM)
 import Text.Pandoc.Data (readDataFile)
 import Text.Pandoc.Error (PandocError(..))
 import Text.Pandoc.Extensions (pandocExtensions)
 import Text.Pandoc.Logging (LogMessage(..))
 import Text.Pandoc.Options (ReaderOptions(..))
-import Text.Pandoc.Shared (stringify, tshow, makeSections)
+import Text.Pandoc.Shared (stringifyInlines, tshow, makeSections)
 import Data.Containers.ListUtils (nubOrd)
 import Text.Pandoc.Walk (query, walk, walkM)
 import Control.Applicative ((<|>))
@@ -132,9 +133,10 @@ getStyle (Pandoc meta _) = do
   let getFile defaultExtension fp = do
         oldRp <- getResourcePath
         mbUdd <- getUserDataDir
-        setResourcePath $ oldRp ++ maybe []
-                                   (\u -> [u <> "/csl",
-                                           u <> "/csl/dependent"]) mbUdd
+        pandocDataDirs <- getPandocDataDirs
+        setResourcePath $ oldRp ++
+          concatMap (\u -> [u <> "/csl", u <> "/csl/dependent"])
+            (maybe id (:) mbUdd pandocDataDirs)
         let fp' = if T.any (=='.') fp || "data:" `T.isPrefixOf` fp
                      then fp
                      else fp <> defaultExtension
@@ -422,7 +424,7 @@ mvPunct moveNotes locale (x : xs)
 mvPunct moveNotes locale (q : s : x@(Cite _ [il]) : ys)
   | isSpacy s
   , isNote il
-  = let spunct = T.takeWhile isPunct $ stringify ys
+  = let spunct = T.takeWhile isPunct $ stringifyInlines ys
     in  if moveNotes
            then if T.null spunct
                    then q : x : mvPunct moveNotes locale ys
@@ -436,7 +438,7 @@ mvPunct moveNotes locale (Cite cs ils@(_:_) : ys)
    | isNote (last ils)
    , startWithPunct ys
    , moveNotes
-   = let s = stringify ys
+   = let s = stringifyInlines ys
          spunct = T.takeWhile isPunct s
      in  Cite cs (movePunctInsideQuotes locale $
                     init ils
@@ -451,7 +453,7 @@ mvPunct moveNotes locale (s : x@(Cite _ [il]) : ys)
 mvPunct moveNotes locale (s : x@(Cite _ (Superscript _ : _)) : ys)
   | isSpacy s = x : mvPunct moveNotes locale ys
 mvPunct moveNotes locale (Cite cs ils : Str "." : ys)
-  | "." `T.isSuffixOf` (stringify ils)
+  | "." `T.isSuffixOf` (stringifyInlines ils)
   = Cite cs ils : mvPunct moveNotes locale ys
 mvPunct moveNotes locale (x:xs) = x : mvPunct moveNotes locale xs
 mvPunct _ _ [] = []
@@ -464,7 +466,7 @@ isPunct c = isPunctuation c && c /= '\x2014' && c /= '\x2013'
 endWithPunct :: Bool -> [Inline] -> Bool
 endWithPunct _ [] = False
 endWithPunct onlyFinal xs@(_:_) =
-  case reverse (T.unpack $ stringify xs) of
+  case reverse (T.unpack $ stringifyInlines xs) of
        []                       -> True
        -- covers .), .", etc.:
        (d:c:_) | isPunct d
@@ -478,15 +480,15 @@ endWithPunct onlyFinal xs@(_:_) =
 
 startWithPunct :: [Inline] -> Bool
 startWithPunct ils =
-  case T.uncons (stringify ils) of
+  case T.uncons (stringifyInlines ils) of
     Just (c,_) -> c `elem` (".,;:!?" :: [Char])
     Nothing -> False
 
 truish :: MetaValue -> Bool
 truish (MetaBool t) = t
 truish (MetaString s) = isYesValue (T.toLower s)
-truish (MetaInlines ils) = isYesValue (T.toLower (stringify ils))
-truish (MetaBlocks [Plain ils]) = isYesValue (T.toLower (stringify ils))
+truish (MetaInlines ils) = isYesValue (T.toLower (stringifyInlines ils))
+truish (MetaBlocks [Plain ils]) = isYesValue (T.toLower (stringifyInlines ils))
 truish _ = False
 
 isYesValue :: Text -> Bool
@@ -637,6 +639,8 @@ removeFinalPeriod ils =
   case lastMay ils of
     Just (Span attr ils')
       -> initSafe ils ++ [Span attr (removeFinalPeriod ils')]
+    Just (Link attr ils' tgt)
+      -> initSafe ils ++ [Link attr (removeFinalPeriod ils') tgt]
     Just (Emph ils')
       -> initSafe ils ++ [Emph (removeFinalPeriod ils')]
     Just (Strong ils')

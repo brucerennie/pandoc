@@ -28,12 +28,14 @@ import Data.List (intercalate, intersperse)
 import Data.Bifunctor (first, second)
 import Network.URI (unEscapeString)
 import qualified Data.Text as T
-import Control.Monad (unless)
+import Control.Monad (unless, when)
 import Control.Monad.State ( StateT, evalStateT, gets, modify )
 import Text.Pandoc.Writers.Shared ( lookupMetaInlines, lookupMetaString,
                                     metaToContext, defField, resetField,
-                                    setupTranslations )
-import Text.Pandoc.Shared (isTightList, orderedListMarkers, tshow, stringify)
+                                    setupTranslations, getLang,
+                                    renderWithTemplate )
+import Text.Pandoc.Shared (isTightList, orderedListMarkers, tshow,
+                           stringifyInlines)
 import Text.Pandoc.Highlighting (highlight, formatTypstBlock, formatTypstInline,
                                  styleToTypst)
 import Text.Pandoc.Translations (Term(Abstract), translateTerm)
@@ -42,12 +44,12 @@ import Text.Pandoc.Walk (query)
 import Text.Pandoc.Writers.Math (convertMath)
 import qualified Text.TeXMath as TM
 import Text.DocLayout
-import Text.DocTemplates (renderTemplate)
 import Text.Pandoc.Extensions (Extension(..))
 import Text.Pandoc.Logging (LogMessage(..))
 import qualified Text.Pandoc.UTF8 as UTF8
 import Text.Collate.Lang (Lang(..), parseLang)
 import Text.Printf (printf)
+import Text.Read (readMaybe)
 import Data.Char (isDigit)
 import Data.Maybe (fromMaybe)
 import Unicode.Char (isXIDContinue)
@@ -59,7 +61,11 @@ writeTypst options document =
   evalStateT (pandocToTypst options document)
     WriterState{ stOptions = options,
                  stEscapeContext = NormalContext,
-                 stHighlighting = False }
+                 stHighlighting = False,
+                 stCsl = False,
+                 stCslHangingIndent = Nothing,
+                 stCslEntrySpacing = Nothing
+               }
 
 data EscapeContext = NormalContext | TermContext
   deriving (Show, Eq)
@@ -68,7 +74,10 @@ data WriterState =
   WriterState {
     stOptions :: WriterOptions,
     stEscapeContext :: EscapeContext,
-    stHighlighting :: Bool
+    stHighlighting :: Bool,
+    stCsl :: Bool,
+    stCslHangingIndent :: Maybe Text,
+    stCslEntrySpacing :: Maybe Text
     }
 
 type TW m = StateT WriterState m
@@ -76,9 +85,6 @@ type TW m = StateT WriterState m
 pandocToTypst :: PandocMonad m
               => WriterOptions -> Pandoc -> TW m Text
 pandocToTypst options (Pandoc meta blocks) = do
-  let colwidth = if writerWrapText options == WrapAuto
-                    then Just $ writerColumns options
-                    else Nothing
   setupTranslations meta
   metadata <- metaToContext options
               blocksToTypst
@@ -94,7 +100,9 @@ pandocToTypst options (Pandoc meta blocks) = do
                            _         -> [])
                   $ lookupMetaInlines "nocite" meta
   hasHighlighting <- gets stHighlighting
-
+  hasCslSettings <- gets stCsl
+  cslHangingIndent <- gets stCslHangingIndent
+  cslEntrySpacing <- gets stCslEntrySpacing
   let context = defField "body" main
               $ defField "toc" (writerTableOfContents options)
               $ (if isEnabled Ext_citations options
@@ -102,15 +110,18 @@ pandocToTypst options (Pandoc meta blocks) = do
                        . defField "nocite-ids" (filter (/= "*") nociteIds)
                        . defField "full-bibliography" ("*" `elem` nociteIds)
                     else id)
-              $ (case lookupMetaString "lang" meta of
-                    "" -> id
-                    lang ->
+              $ (case getLang options meta of
+                    Nothing -> id
+                    Just lang ->
                       case parseLang lang of
                         Left _ -> id
                         Right l ->
                           resetField "lang" (langLanguage l) .
                           maybe id (resetField "region") (langRegion l))
               $ defField "csl" (lookupMetaString "citation-style" meta) -- #10661
+              $ defField "csl-settings" hasCslSettings
+              $ maybe id (defField "csl-hanging-indent") cslHangingIndent
+              $ maybe id (defField "csl-entry-spacing") cslEntrySpacing
               $ defField "smart" (isEnabled Ext_smart options)
               $ defField "abstract-title" abstractTitle
               $ defField "toc-depth" (tshow $ writerTOCDepth options)
@@ -130,10 +141,7 @@ pandocToTypst options (Pandoc meta blocks) = do
                     then defField "section-numbering" ("1.1.1.1.1" :: Text)
                     else id)
               metadata
-  return $ render colwidth $
-    case writerTemplate options of
-       Nothing  -> main
-       Just tpl -> renderTemplate tpl context
+  return $ renderWithTemplate options context main
 
 pickTypstAttrs :: [(Text, Text)] -> ([(Text, Text)],[(Text, Text)])
 pickTypstAttrs = foldr go ([],[])
@@ -206,7 +214,7 @@ blockToTypst block =
     RawBlock fmt str ->
       case fmt of
         Format "typst" -> return $ literal str
-        _ -> return mempty
+        _ -> mempty <$ report (BlockNotRendered block)
     CodeBlock (ident,cls,kvs) code -> do
       let go :: Char -> (Int, Int) -> (Int, Int)
           go '`' (longest, current) =
@@ -362,17 +370,18 @@ blockToTypst block =
                 $$ footer
             )
             $$ ")"
-      return $ if "typst:no-figure" `elem` tabclasses
-        then toTypstBracesSetText typstTextAttrs table
-        else "#figure("
-            $$
-            nest 2
-            ("align(center)[" <> toTypstPoundSetText typstTextAttrs <> "#" <> table <> "]"
-              $$ capt'
-              $$ typstFigureKind
-              $$ ")")
-            $$ lab
-          $$ blankline
+      return $
+        (if "typst:no-figure" `elem` tabclasses
+            then toTypstBracesSetText typstTextAttrs table
+            else "#figure("
+                 $$
+                 nest 2
+                 ("align(center)[" <> toTypstPoundSetText typstTextAttrs <> "#" <> table <> "]"
+                   $$ capt'
+                   $$ typstFigureKind
+                   $$ ")"))
+        $$ lab
+        $$ blankline
     Figure (ident,_,kvs) (Caption _mbshort capt) blocks -> do
       caption <- blocksToTypst capt
       opts <-  gets stOptions
@@ -394,11 +403,22 @@ blockToTypst block =
                           $$ ")" $$ lab $$ blankline
     Div (ident,_,_) (Header lev ("",cls,kvs) ils:rest) ->
       blocksToTypst (Header lev (ident,cls,kvs) ils:rest)
-    Div (ident,_,kvs) blocks -> do
+    Div (ident,cls,kvs) blocks -> do
       let lab = case lookup "typst-label" kvs of
                   Just l -> toLabel FreestandingLabel l
                   Nothing -> toLabel FreestandingLabel ident
       let (typstAttrs,typstTextAttrs) = pickTypstAttrs kvs
+      when ("csl-bib-body" `elem` cls) $
+        modify $ \st -> st{ stCsl = True
+                          , stCslEntrySpacing =
+                              case lookup "entry-spacing" kvs >>=
+                                     readMaybe . T.unpack of
+                                Just (n :: Int) -> Just $ tshow n <> "em"
+                                Nothing -> Nothing
+                          , stCslHangingIndent =
+                              if "hanging-indent" `elem` cls
+                                 then Just "1.5em"
+                                 else Nothing }
       contents <- blocksToTypst blocks
       return $ "#block" <> toTypstPropsListParens typstAttrs <> "["
         $$ toTypstPoundSetText typstTextAttrs
@@ -496,7 +516,7 @@ inlineToTypst inline =
     RawInline fmt str ->
       case fmt of
         Format "typst" -> return $ literal str
-        _ -> return mempty
+        _ -> mempty <$ report (InlineNotRendered inline)
     Strikeout inlines -> textstyle "#strike" inlines
     Emph inlines -> textstyle "#emph" inlines
     Underline inlines -> textstyle "#underline" inlines
@@ -598,7 +618,7 @@ getAlt (_, _, kvs) imgInlines =
     Just alt -> Just alt
     Nothing -> case imgInlines of
                  [] -> Nothing
-                 _ -> Just (stringify imgInlines)
+                 _ -> Just (stringifyInlines imgInlines)
 
 textstyle :: PandocMonad m => Doc Text -> [Inline] -> TW m (Doc Text)
 textstyle s inlines = do
@@ -633,23 +653,19 @@ escapeTypst smart context t =
     go (lastc, t') c
       | needsEscape c = (c, t' <> escapeChar c)
       | c == '-', lastc == '-', smart = (c, t' <> T.pack ['\\',c])
+      | c == '?', lastc == '-', smart = (c, t' <> T.pack ['\\',c])
+      | c == '.', lastc == '.', smart = (c, t' <> T.pack ['\\',c])
       | c == '/', lastc == '/' = (c, t' <> T.pack ['\\',c])
       | otherwise = (c, T.snoc t' c)
     escapeChar c
       | c == '\160' = "~"
-      | c == '\8216', smart = "'" -- left quote
       | c == '\8217', smart = "'" -- apostrophe
-      | c == '\8220', smart = "\"" -- left double quote
-      | c == '\8221', smart = "\"" -- right double quote
       | c == '\8212', smart = "---" -- em dash
       | c == '\8211', smart = "--" -- en dash
       | needsEscape c = "\\" <> T.singleton c
       | otherwise = T.singleton c
     needsEscape '\160' = True
-    needsEscape '\8216' = smart
     needsEscape '\8217' = smart
-    needsEscape '\8220' = smart
-    needsEscape '\8221' = smart
     needsEscape '\8212' = smart
     needsEscape '\8211' = smart
     needsEscape '\'' = smart

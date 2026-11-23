@@ -22,16 +22,22 @@ module Text.Pandoc.Readers.Xlsx.Parse
   ) where
 
 import Codec.Archive.Zip (Archive, Entry, findEntryByPath, fromEntry)
+import Control.Monad (join)
+import Data.Char (toLower)
 import Data.List (find)
 import qualified Data.Map.Strict as M
 import Data.Maybe (mapMaybe, fromMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy.Encoding as TL
 import Data.Text (Text)
+import Data.Time.Calendar (Day, addDays, fromGregorian, showGregorian)
 import qualified Data.Vector as V
 import System.FilePath (splitFileName)
+import qualified System.FilePath.Posix as Posix
+import Text.Pandoc.Readers.OOXML.Charts (Chart, readChart)
 import Text.Pandoc.Readers.OOXML.Shared
 import Text.Pandoc.Readers.Xlsx.Cells
+import Text.Pandoc.Shared (collapseFilePath)
 import Text.Pandoc.XML.Light
 import Text.Read (readMaybe)
 
@@ -51,6 +57,17 @@ data FontInfo = FontInfo
 -- | Style information
 data Styles = Styles
   { styleFonts :: V.Vector FontInfo
+  , styleCellFonts :: V.Vector Int
+    -- ^ For each cell format (@cellXfs@), the index of its font
+  , styleDateFormats :: V.Vector (Maybe DateFormat)
+    -- ^ For each cell format (@cellXfs@), what it shows of a date
+  } deriving (Show)
+
+-- | What a date or time number format shows
+data DateFormat = DateFormat
+  { dateShowsDate :: Bool
+  , dateShowsTime :: Bool
+  , dateShowsSeconds :: Bool
   } deriving (Show)
 
 -- | Complete XLSX document
@@ -64,6 +81,7 @@ data Xlsx = Xlsx
 -- | Workbook information
 data XlsxWorkbook = XlsxWorkbook
   { workbookSheetNames :: [(SheetId, Text, Text)]  -- (id, name, relId)
+  , workbookDate1904 :: Bool  -- ^ Dates count from 1904 rather than 1900
   } deriving (Show)
 
 -- | Individual worksheet
@@ -71,6 +89,9 @@ data XlsxSheet = XlsxSheet
   { sheetId :: SheetId
   , sheetName :: Text
   , sheetCells :: M.Map CellRef XlsxCell
+  , sheetMerges :: [(CellRef, CellRef)]
+    -- ^ Merged ranges, as their top-left and bottom-right cells
+  , sheetCharts :: [Chart]  -- ^ In the order they are drawn
   } deriving (Show)
 
 -- | Parse XLSX archive
@@ -88,21 +109,20 @@ archiveToXlsx archive = do
   -- Parse shared strings (look for sharedStrings relationship)
   sharedStrings <- case findRelWithTarget workbookRels "sharedStrings" of
     Just (_, target) -> do
-      let path = "xl/" ++ T.unpack target
-      el <- loadXMLFromArchive archive path
+      el <- loadXMLFromArchive archive (resolveTarget workbookPath target)
       parseSharedStrings el
     Nothing -> Right V.empty
 
   -- Parse styles
   styles <- case findRelWithTarget workbookRels "styles" of
     Just (_, target) -> do
-      let path = "xl/" ++ T.unpack target
-      el <- loadXMLFromArchive archive path
+      el <- loadXMLFromArchive archive (resolveTarget workbookPath target)
       parseStyles el
-    Nothing -> Right $ Styles V.empty
+    Nothing -> Right $ Styles V.empty V.empty V.empty
 
   -- Parse worksheets
-  sheets <- mapM (\sheetInfo -> parseSheet archive workbookRels sharedStrings styles sheetInfo)
+  sheets <- mapM (parseSheet archive workbookPath workbookRels sharedStrings
+                    styles (workbookDate1904 workbook))
                  (workbookSheetNames workbook)
 
   return $ Xlsx workbook sheets sharedStrings styles
@@ -119,7 +139,8 @@ getWorkbookXmlPath archive = do
     Nothing -> Left "No workbook.xml relationship found"
     Just rel -> do
       target <- maybeToEither "Missing Target" $ findAttr (unqual "Target") rel
-      return $ T.unpack target
+      -- The root relationships belong to the package itself.
+      return $ resolveTarget "" target
   where
     isOfficeDocRel el =
       case (findAttr (unqual "Type") el, findAttr (unqual "Target") el) of
@@ -139,7 +160,11 @@ parseWorkbook wbElem = do
   let sheetElems = filter (\e -> qName (elName e) == "sheet") (onlyElems $ elContent sheets)
   sheetRefs <- mapM (parseSheetRef ns) (zip [1..] sheetElems)
 
-  return $ XlsxWorkbook sheetRefs
+  let date1904 = maybe False (`elem` ["1", "true"]) $
+        find (\e -> qName (elName e) == "workbookPr") (elChildren wbElem)
+          >>= findAttr (unqual "date1904")
+
+  return $ XlsxWorkbook sheetRefs date1904
 
 parseSheetRef :: NameSpaces -> (Int, Element) -> Either Text (SheetId, Text, Text)
 parseSheetRef ns (idx, sheetElem) = do
@@ -153,13 +178,21 @@ parseSheetRef ns (idx, sheetElem) = do
 parseSharedStrings :: Element -> Either Text SharedStrings
 parseSharedStrings sstElem = do
   let siElems = filter (\e -> qName (elName e) == "si") (onlyElems $ elContent sstElem)
-      strings = map extractString siElems
+      strings = map stringItemText siElems
   return $ V.fromList strings
-  where
-    extractString siElem =
-      case find (\e -> qName (elName e) == "t") (onlyElems $ elContent siElem) of
-        Just tElem -> strContent tElem
-        Nothing -> getAllText siElem
+
+-- | Text of a string item (@si@ in the shared strings, @is@ in an inline
+-- string cell): its @t@, or the @t@ of its rich-text runs (@r@)
+-- concatenated as written. Phonetic runs (@rPh@) are skipped.
+stringItemText :: Element -> Text
+stringItemText el = T.concat
+  [ strContent t
+  | child <- elChildren el
+  , t <- case qName (elName child) of
+           "t" -> [child]
+           "r" -> filter (\e -> qName (elName e) == "t") (elChildren child)
+           _   -> []
+  ]
 
 -- | Parse styles (fonts only for MVP)
 parseStyles :: Element -> Either Text Styles
@@ -169,7 +202,107 @@ parseStyles stylesElem = do
       fontElems = maybe [] (\fe -> filter (\e -> qName (elName e) == "font") (onlyElems $ elContent fe)) fontsElem
       fonts = V.fromList $ map (parseFont mempty) fontElems
 
-  return $ Styles fonts
+      -- A cell's style index (@s@) refers to a cell format in <cellXfs>,
+      -- which refers to its font by @fontId@ and its number format by
+      -- @numFmtId@.
+      children name el = filter (\e -> qName (elName e) == name) (elChildren el)
+      cellFormats =
+        [ xf
+        | cellXfs <- children "cellXfs" stylesElem
+        , xf <- children "xf" cellXfs
+        ]
+      cellFonts = V.fromList
+        [ fromMaybe 0 $ findAttr (unqual "fontId") xf >>= readMaybe . T.unpack
+        | xf <- cellFormats
+        ]
+
+      -- Number formats: custom ones from <numFmts>, by id
+      customFormats = M.fromList
+        [ (fmtId, code)
+        | numFmts <- children "numFmts" stylesElem
+        , numFmt <- children "numFmt" numFmts
+        , Just fmtId <- [findAttr (unqual "numFmtId") numFmt >>=
+                           readMaybe . T.unpack]
+        , Just code <- [findAttr (unqual "formatCode") numFmt]
+        ]
+      xfDateFormat xf = do
+        fmtId <- findAttr (unqual "numFmtId") xf >>= readMaybe . T.unpack
+        maybe (builtinDateFormat fmtId) customDateFormat
+          (M.lookup fmtId customFormats)
+      dateFormats = V.fromList $ map xfDateFormat cellFormats
+
+  return $ Styles fonts cellFonts dateFormats
+
+-- | The built-in number formats that show dates or times. Format 46,
+-- @[h]:mm:ss@, shows a duration rather than a time of day.
+builtinDateFormat :: Int -> Maybe DateFormat
+builtinDateFormat fmtId
+  | fmtId >= 14 && fmtId <= 17 = Just $ DateFormat True False False
+  | fmtId == 18 || fmtId == 20 = Just $ DateFormat False True False
+  | fmtId == 19 || fmtId == 21 || fmtId == 45 || fmtId == 47
+                               = Just $ DateFormat False True True
+  | fmtId == 22                = Just $ DateFormat True True False
+  | otherwise                  = Nothing
+
+-- | Whether a custom format code shows a date or a time: whether its
+-- first section has a date or time token (y, m, d, h, s) outside quoted
+-- text, escaped characters and brackets. A bracketed elapsed-time token
+-- such as @[h]@ makes it a duration, which isn't treated as a date.
+customDateFormat :: Text -> Maybe DateFormat
+customDateFormat code
+  | elapsed = Nothing
+  | showsDate || showsTime = Just $ DateFormat showsDate showsTime hasS
+  | otherwise = Nothing
+  where
+    (tokens, brackets) = scan (T.unpack (T.takeWhile (/= ';') code)) [] []
+    has c = c `elem` tokens
+    hasS = has 's'
+    showsTime = has 'h' || hasS
+    showsDate = has 'y' || has 'd' || (has 'm' && not showsTime)
+    elapsed = any (\b -> not (null b) && all (`elem` ("hms" :: String)) b)
+                  brackets
+    -- Collect the letters outside quotes, escapes and brackets, and the
+    -- contents of brackets.
+    scan [] ts bs = (ts, bs)
+    scan ('"':cs) ts bs = scan (drop 1 (dropWhile (/= '"') cs)) ts bs
+    scan ('\\':_:cs) ts bs = scan cs ts bs
+    scan ('_':_:cs) ts bs = scan cs ts bs
+    scan ('*':_:cs) ts bs = scan cs ts bs
+    scan ('[':cs) ts bs =
+      let (inside, rest) = break (== ']') cs
+       in scan (drop 1 rest) ts (map toLower inside : bs)
+    scan (c:cs) ts bs = scan cs (toLower c : ts) bs
+
+-- | Render a date serial number under a date or time format, as an ISO
+-- 8601 date (@2023-11-01@), time (@14:30@ or @14:30:05@), or both joined
+-- by a space. Nothing if the number isn't a date the format can show:
+-- negative, or before the first day of the date system for a format
+-- that shows the date.
+formatDate :: Bool -> DateFormat -> Double -> Maybe Text
+formatDate date1904 fmt serial
+  | serial < 0 = Nothing
+  | otherwise = do
+      dateText <- if dateShowsDate fmt
+                    then (\d -> [showGregorian d]) <$> day
+                    else Just []
+      let timeText = [ showTime | dateShowsTime fmt ]
+      return $ T.pack $ unwords (dateText ++ timeText)
+  where
+    seconds = round (serial * 86400) :: Integer
+    (days, secs) = seconds `divMod` 86400
+    day :: Maybe Day
+    day
+      | date1904 = Just $ addDays days (fromGregorian 1904 1 1)
+      -- 1900 system: day 1 is 1900-01-01, and day 60 is the 29 February
+      -- 1900 that Excel counts but that didn't exist.
+      | days < 1 || days == 60 = Nothing
+      | days < 60 = Just $ addDays days (fromGregorian 1899 12 31)
+      | otherwise = Just $ addDays days (fromGregorian 1899 12 30)
+    (h, rest) = secs `divMod` 3600
+    (m, s) = rest `divMod` 60
+    pad n = (if n < 10 then ('0' :) else id) (show n)
+    showTime = pad h ++ ":" ++ pad m ++
+               (if dateShowsSeconds fmt then ":" ++ pad s else "")
 
 parseFont :: NameSpaces -> Element -> FontInfo
 parseFont _ns fontElem =
@@ -180,33 +313,86 @@ parseFont _ns fontElem =
     }
 
 -- | Parse individual worksheet
-parseSheet :: Archive -> [(Text, Text)] -> SharedStrings -> Styles -> (SheetId, Text, Text) -> Either Text XlsxSheet
-parseSheet archive rels sharedStrings styles (sid, name, relId) = do
+parseSheet :: Archive -> FilePath -> [(Text, Text)] -> SharedStrings -> Styles
+           -> Bool -> (SheetId, Text, Text) -> Either Text XlsxSheet
+parseSheet archive wbPath rels sharedStrings styles date1904
+           (sid, name, relId) = do
   target <- maybeToEither ("Sheet relationship not found: " <> relId) $
             lookup relId rels
 
-  let sheetPath = "xl/" ++ T.unpack target
+  let sheetPath = resolveTarget wbPath target
   sheetElem <- loadXMLFromArchive archive sheetPath
 
-  cells <- parseSheetCells sheetElem sharedStrings styles
+  cells <- parseSheetCells sheetElem sharedStrings styles date1904
 
-  return $ XlsxSheet sid name cells
+  let merges =
+        [ (from, to)
+        | mergeCells <- filter (\e -> qName (elName e) == "mergeCells")
+                               (elChildren sheetElem)
+        , mergeCell <- filter (\e -> qName (elName e) == "mergeCell")
+                              (elChildren mergeCells)
+        , Just ref <- [findAttr (unqual "ref") mergeCell]
+        , (fromText, toText) <- [T.breakOn ":" ref]
+        , Right from <- [parseCellRef fromText]
+        , Right to <- [parseCellRef (T.drop 1 toText)]
+        ]
+
+  return $ XlsxSheet sid name cells merges
+           (sheetChartsOf archive sheetPath)
+
+-- | The charts on a worksheet or chart sheet: those its drawing refers
+-- to, in document order. A drawing or chart that can't be read is left
+-- out.
+sheetChartsOf :: Archive -> FilePath -> [Chart]
+sheetChartsOf archive sheetPath = fromMaybe [] $ do
+  drawingTarget <- findRelTargetByType archive (relsPathFor sheetPath)
+                     "drawing"
+  let drawingPath = resolveTarget sheetPath drawingTarget
+  drawing <- either (const Nothing) Just $
+             loadXMLFromArchive archive drawingPath
+  drawingRels <- either (const Nothing) Just $
+                 loadRelationships archive (relsPathFor drawingPath)
+  return
+    [ chart
+    | chartElem <- filterElementsName ((== "chart") . qName) drawing
+    , Just relId <- [lookupRelId chartElem]
+    , Just chartTarget <- [lookup relId drawingRels]
+    , Right chart <- [readChart archive
+                        (resolveTarget drawingPath chartTarget)]
+    ]
+  where
+    lookupRelId el = attrVal <$> find isRelId (elAttribs el)
+    isRelId a = qName (attrKey a) == "id" && qURI (attrKey a) == Just
+      "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+-- | Find the target of the first relationship in a .rels part whose Type
+-- ends with the given name, such as @drawing@
+findRelTargetByType :: Archive -> FilePath -> Text -> Maybe Text
+findRelTargetByType archive relsPath typeName = do
+  entry <- findEntryByPath relsPath archive
+  relsElem <- either (const Nothing) Just $ parseXMLFromEntry entry
+  rel <- find hasType (onlyElems $ elContent relsElem)
+  findAttr (unqual "Target") rel
+  where
+    hasType el = maybe False (("/" <> typeName) `T.isSuffixOf`) $
+                 findAttr (unqual "Type") el
 
 -- | Parse sheet cells
-parseSheetCells :: Element -> SharedStrings -> Styles -> Either Text (M.Map CellRef XlsxCell)
-parseSheetCells sheetElem sharedStrings styles = do
+parseSheetCells :: Element -> SharedStrings -> Styles -> Bool
+                -> Either Text (M.Map CellRef XlsxCell)
+parseSheetCells sheetElem sharedStrings styles date1904 = do
   -- Find sheetData by local name
   case find (\e -> qName (elName e) == "sheetData") (onlyElems $ elContent sheetElem) of
     Nothing -> return M.empty
     Just sheetData -> do
       let rowElems = filter (\e -> qName (elName e) == "row") (onlyElems $ elContent sheetData)
           cellElems = concatMap (\r -> filter (\e -> qName (elName e) == "c") (onlyElems $ elContent r)) rowElems
-          cells = mapMaybe (parseCell sharedStrings styles) cellElems
+          cells = mapMaybe (parseCell sharedStrings styles date1904) cellElems
       return $ M.fromList [(cellRef c, c) | c <- cells]
 
 -- | Parse individual cell
-parseCell :: SharedStrings -> Styles -> Element -> Maybe XlsxCell
-parseCell sharedStrings styles cElem = do
+parseCell :: SharedStrings -> Styles -> Bool -> Element -> Maybe XlsxCell
+parseCell sharedStrings styles date1904 cElem = do
   -- Get cell reference
   refText <- findAttr (unqual "r") cElem
   cellRefParsed <- either (const Nothing) Just $ parseCellRef refText
@@ -227,20 +413,32 @@ parseCell sharedStrings styles cElem = do
                   Just idx | idx >= 0 && idx < V.length sharedStrings ->
                     TextValue (sharedStrings V.! idx)
                   _ -> EmptyValue
+              else if cellType == "inlineStr"
+                then
+                  -- Inline string, held in the cell itself rather than in <v>
+                  maybe EmptyValue (TextValue . stringItemText) $
+                    find (\e -> qName (elName e) == "is") (elChildren cElem)
               else if T.null vText
                 then EmptyValue
+              else if cellType == "b"
+                then BoolValue (vText == "1")
                 else
                   -- Number
                   case readMaybe (T.unpack vText) of
-                    Just n -> NumberValue n
+                    Just n
+                      | Just txt <- dateFormat >>= \f -> formatDate date1904 f n
+                      -> TextValue txt
+                      | otherwise -> NumberValue n
                     Nothing -> TextValue vText
+      dateFormat = join $ styleIdx >>= (styleDateFormats styles V.!?)
 
   -- Get formatting from style
-  let (bold, italic) = case styleIdx of
-        Just idx | idx >= 0 && idx < V.length (styleFonts styles) ->
-          let font = styleFonts styles V.! idx
-           in (fontBold font, fontItalic font)
-        _ -> (False, False)
+  let font = do
+        idx <- styleIdx
+        fontIdx <- styleCellFonts styles V.!? idx
+        styleFonts styles V.!? fontIdx
+      (bold, italic) = maybe (False, False)
+                         (\f -> (fontBold f, fontItalic f)) font
 
   return $ XlsxCell cellRefParsed value bold italic
 
@@ -275,6 +473,15 @@ relsPathFor path =
   let (dir, file) = splitFileName path
    in dir ++ "/_rels/" ++ file ++ ".rels"
 
+-- | Resolve a relationship target to an archive path. A target starting
+-- with @/@ is relative to the package root; any other target is relative
+-- to the folder of the part that holds the relationship.
+resolveTarget :: FilePath -> Text -> FilePath
+resolveTarget source target =
+  case T.unpack target of
+    '/':path -> path
+    path -> collapseFilePath (Posix.takeDirectory source Posix.</> path)
+
 findRelWithTarget :: [(Text, Text)] -> Text -> Maybe (Text, Text)
 findRelWithTarget rels targetName =
   find (\(_, target) -> targetName `T.isInfixOf` target) rels
@@ -282,14 +489,6 @@ findRelWithTarget rels targetName =
 maybeToEither :: Text -> Maybe a -> Either Text a
 maybeToEither err Nothing = Left err
 maybeToEither _ (Just x) = Right x
-
-getAllText :: Element -> Text
-getAllText el =
-  let textFromContent (Text cdata) = cdData cdata
-      textFromContent (Elem e) = getAllText e
-      textFromContent _ = ""
-      texts = map textFromContent (elContent el)
-   in T.unwords $ filter (not . T.null) texts
 
 addContext :: Either Text a -> Text -> Either Text a
 addContext (Right x) _ = Right x

@@ -22,6 +22,7 @@ import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.Except (throwError)
 import Data.Bifunctor
+import Data.Char (isAlphaNum, isDigit, isLetter)
 import Data.Default
 import Data.List (transpose)
 import qualified Data.Map as M
@@ -36,7 +37,7 @@ import Text.Pandoc.Definition
 import Text.Pandoc.Logging
 import Text.Pandoc.Options
 import Text.Pandoc.Parsing
-import Text.Pandoc.Shared (trimr, tshow)
+import Text.Pandoc.Shared (trimr, tshow, compactifyTable)
 
 -- | Read Muse from an input string and return a Pandoc document.
 readMuse :: (PandocMonad m, ToSources a)
@@ -170,7 +171,7 @@ openTag tag = try $
   where
     attr = try $ (,)
       <$  many1 spaceChar
-      <*> many1Char (noneOf "=\n")
+      <*> takeWhile1P (\c -> c /= '=' && c /= '\n')
       <*  string "=\""
       <*> manyTillChar (noneOf "\"") (char '"')
 
@@ -198,7 +199,7 @@ parseHtmlContent tag = try $ getIndent >>= \indent -> (,)
 
 -- While not documented, Emacs Muse allows "-" in directive name
 parseDirectiveKey :: PandocMonad m => MuseParser m Text
-parseDirectiveKey = char '#' *> manyChar (letter <|> char '-')
+parseDirectiveKey = char '#' *> takeWhileP (\c -> isLetter c || c == '-')
 
 parseEmacsDirective :: PandocMonad m => MuseParser m (Text, F Inlines)
 parseEmacsDirective = (,)
@@ -645,6 +646,7 @@ data MuseTableElement = MuseHeaderRow [Blocks]
 
 museToPandocTable :: MuseTable -> Blocks
 museToPandocTable (MuseTable caption headers body footers) =
+  compactifyTable $
   B.table (B.simpleCaption $ B.plain caption)
           attrs
           (TableHead nullAttr $ toHeaderRow headRow)
@@ -723,10 +725,29 @@ tableParseElement = tableParseHeader
 tableParseRow :: PandocMonad m
               => Int -- ^ Number of separator characters
               -> MuseParser m (F [Blocks])
-tableParseRow n = try $ sequence <$> tableCells
+tableParseRow n = try $ do
+  -- A table row must contain a cell separator (whitespace followed by
+  -- pipes), which cannot span lines.  Scanning the raw line for one
+  -- before parsing cells avoids expensive inline parsing (that would
+  -- fail and be discarded) of every line this parser is tried on.
+  lineMayBeRow <- rawLineContainsSeparator
+  guard lineMayBeRow
+  sequence <$> tableCells
   where tableCells = (:) <$> tableCell sep <*> (tableCells <|> fmap pure (tableCell eol))
         tableCell p = try $ fmap B.plain . trimInlinesF . mconcat <$> manyTill inline' p
         sep = try $ many1 spaceChar *> count n (char '|') *> lookAhead (void (many1 spaceChar) <|> void eol)
+        pipes = T.replicate n "|"
+        rawLineContainsSeparator = do
+          Sources inps <- getInput
+          return $ case inps of
+            (_,t):rest ->
+              case T.break (== '\n') t of
+                (this, remainder)
+                  | T.null remainder, not (null rest) ->
+                      True -- line may span input chunks; don't reject
+                  | otherwise -> (" " <> pipes) `T.isInfixOf` this ||
+                                 ("\t" <> pipes) `T.isInfixOf` this
+            [] -> False
 
 -- | Parse a table header row.
 tableParseHeader :: PandocMonad m => MuseParser m (F MuseTableElement)
@@ -751,6 +772,7 @@ tableParseCaption = try $ fmap MuseCaption . trimInlinesF . mconcat
 
 inline' :: PandocMonad m => MuseParser m (F Inlines)
 inline' = whitespace
+      <|> str -- tried early: all other alternatives start with non-alphanumerics
       <|> br
       <|> anchor
       <|> footnote
@@ -773,7 +795,6 @@ inline' = whitespace
       <|> codeTag
       <|> mathTag
       <|> inlineLiteralTag
-      <|> str
       <|> asterisks
       <|> symbol
       <?> "inline"
@@ -790,7 +811,7 @@ parseAnchor = try $ T.cons
   <$  firstColumn
   <*  char '#'
   <*> letter
-  <*> manyChar (letter <|> digit <|> char '-')
+  <*> takeWhileP (\c -> isLetter c || isDigit c || c == '-')
 
 anchor :: PandocMonad m => MuseParser m (F Inlines)
 anchor = try $ do
@@ -931,13 +952,13 @@ inlineLiteralTag = try $ fmap pure $ B.rawInline
   <*> manyTillChar anyChar (closeTag "literal")
 
 str :: PandocMonad m => MuseParser m (F Inlines)
-str = return . B.str <$> many1Char alphaNum <* updateLastStrPos
+str = return . B.str <$> takeWhile1P isAlphaNum <* updateLastStrPos
 
 -- | Consume asterisks that were not used as emphasis opening.
 -- This prevents series of asterisks from being split into
 -- literal asterisk and emphasis opening.
 asterisks :: PandocMonad m => MuseParser m (F Inlines)
-asterisks = pure . B.str <$> many1Char (char '*')
+asterisks = pure . B.str <$> takeWhile1P (== '*')
 
 symbol :: PandocMonad m => MuseParser m (F Inlines)
 symbol = pure . B.str . T.singleton <$> nonspaceChar
@@ -986,6 +1007,6 @@ image = try $ do
           return (ext, width, align)
         imageAttrs = (,)
           <$  many1 spaceChar
-          <*> optionMaybe (many1Char digit)
+          <*> optionMaybe (takeWhile1P isDigit)
           <*  many spaceChar
           <*> optionMaybe (oneOf "rlf")

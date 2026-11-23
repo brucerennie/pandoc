@@ -112,9 +112,17 @@ tests = [ testGroup "document"
             "docx/char_styles.docx"
             "docx/char_styles.native"
           , testCompare
+            "double strikethrough"
+            "docx/double_strikeout.docx"
+            "docx/double_strikeout.native"
+          , testCompare
             "hyperlinks"
             "docx/links.docx"
             "docx/links.native"
+          , testCompare
+            "hyperlinks with ScreenTips"
+            "docx/link_tooltips.docx"
+            "docx/link_tooltips.native"
           , testCompare
             "hyperlinks in <w:instrText> tag"
             "docx/instrText_hyperlink.docx"
@@ -127,6 +135,18 @@ tests = [ testGroup "document"
             "empty fields with <w:instrText> tag"
             "docx/empty_field.docx"
             "docx/empty_field.native"
+          , testCompare
+            "field without <w:instrText> does not corrupt later lists"
+            "docx/field_no_instrText.docx"
+            "docx/field_no_instrText.native"
+          , testCompare
+            "field with <w:instrText> in tracked change does not corrupt later lists"
+            "docx/field_tracked_instrText.docx"
+            "docx/field_tracked_instrText.native"
+          , testCompare
+            "field without <w:instrText> in a code block keeps its text"
+            "docx/field_no_instrText_codeblock.docx"
+            "docx/field_no_instrText_codeblock.native"
           , testCompare
             "pageref hyperlinks in <w:instrText> tag"
             "docx/pageref.docx"
@@ -199,6 +219,10 @@ tests = [ testGroup "document"
             "nested Smart Tags"
             "docx/nested_smart_tags.docx"
             "docx/nested_smart_tags.native"
+          , testCompare
+            "inline customXml elements"
+            "docx/custom_xml.docx"
+            "docx/custom_xml.native"
           , testCompare
             "remove anchor spans with nothing pointing to them"
             "docx/unused_anchors.docx"
@@ -421,8 +445,8 @@ tests = [ testGroup "document"
             "docx/track_changes_deletion_reject.native"
           , testCompareWithOpts def{readerTrackChanges=AllChanges}
             "keep insertion (all)"
-            "docx/track_changes_deletion.docx"
-            "docx/track_changes_deletion_all.native"
+            "docx/track_changes_insertion.docx"
+            "docx/track_changes_insertion_all.native"
           , testCompareWithOpts def{readerTrackChanges=AllChanges}
             "keep deletion (all)"
             "docx/track_changes_deletion.docx"
@@ -439,6 +463,26 @@ tests = [ testGroup "document"
             "move text (all)"
             "docx/track_changes_move.docx"
             "docx/track_changes_move_all.native"
+          , testCompareWithOpts def{readerTrackChanges=AllChanges}
+            "spaces at the edges of changes stay in the span (all)"
+            "docx/track_changes_edge_spaces.docx"
+            "docx/track_changes_edge_spaces_all.native"
+          , testCompareWithOpts def{readerTrackChanges=AcceptChanges}
+            "spaces at the edges of changes (accept)"
+            "docx/track_changes_edge_spaces.docx"
+            "docx/track_changes_edge_spaces_accept.native"
+          , testCompareWithOpts def{readerTrackChanges=RejectChanges}
+            "spaces at the edges of changes (reject)"
+            "docx/track_changes_edge_spaces.docx"
+            "docx/track_changes_edge_spaces_reject.native"
+          , testCompareWithOpts def{readerTrackChanges=AcceptChanges}
+            "paragraph marks in notes stay in their notes (accept)"
+            "docx/track_changes_paragraph_mark_in_note.docx"
+            "docx/track_changes_paragraph_mark_in_note_accept.native"
+          , testCompareWithOpts def{readerTrackChanges=RejectChanges}
+            "paragraph marks in notes stay in their notes (reject)"
+            "docx/track_changes_paragraph_mark_in_note.docx"
+            "docx/track_changes_paragraph_mark_in_note_reject.native"
           , testCompareWithOpts def{readerTrackChanges=AcceptChanges}
             "comments (accept -- no comments)"
             "docx/comments.docx"

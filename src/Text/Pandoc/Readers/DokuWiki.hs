@@ -28,7 +28,7 @@ import Text.Pandoc.Class.PandocMonad (PandocMonad (..))
 import Text.Pandoc.Definition
 import Text.Pandoc.Options
 import Text.Pandoc.Parsing hiding (enclosed)
-import Text.Pandoc.Shared (trim, stringify, tshow)
+import Text.Pandoc.Shared (trim, stringifyInlines, tshow, compactifyTable)
 import Data.List (isPrefixOf, isSuffixOf, groupBy)
 import qualified Safe
 
@@ -174,10 +174,11 @@ nestedText :: (Show a, PandocMonad m)
              => DWParser m a -> DWParser m Text
 nestedText end = innerSpace <|> countChar 1 nonspaceChar
   where
-    innerSpace = try $ many1Char spaceChar <* notFollowedBy end
+    innerSpace = try $ takeWhile1P (\c -> c == ' ' || c == '\t')
+                        <* notFollowedBy end
 
 monospaced :: PandocMonad m => DWParser m B.Inlines
-monospaced = try $ B.code . (T.concat . map stringify . B.toList) <$> enclosed (string "''") nestedInlines
+monospaced = try $ B.code . stringifyInlines <$> enclosed (string "''") nestedInlines
 
 subscript :: PandocMonad m => DWParser m B.Inlines
 subscript = try $ B.subscript <$> between (string "<sub>") (try $ string "</sub>") nestedInlines
@@ -238,7 +239,7 @@ nocache :: PandocMonad m => DWParser m B.Inlines
 nocache = try $ mempty <$ string "~~NOCACHE~~"
 
 str :: PandocMonad m => DWParser m B.Inlines
-str = B.str <$> (many1Char alphaNum <|> characterReference)
+str = B.str <$> (takeWhile1P isAlphaNum <|> characterReference)
 
 symbol :: PandocMonad m => DWParser m B.Inlines
 symbol = B.str <$> (notFollowedBy' blockCode *> countChar 1 nonspaceChar)
@@ -517,7 +518,8 @@ table = do
   let attrs =  map (\(a, _) -> (a, ColWidthDefault)) firstRow
   let toRow = Row nullAttr . map B.simpleCell
       toHeaderRow l = [toRow l | not (null l)]
-  pure $ B.table B.emptyCaption
+  pure $ compactifyTable
+       $ B.table B.emptyCaption
                  attrs
                  (TableHead nullAttr $ toHeaderRow (map snd headerRow))
                  [TableBody nullAttr 0 [] $ map (toRow . (map snd)) body]

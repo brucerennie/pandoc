@@ -1,6 +1,6 @@
 module Main (main) where
 
-import System.Environment (getArgs, getExecutablePath)
+import System.Environment (getArgs, getExecutablePath, setEnv)
 import qualified Control.Exception as E
 import Text.Pandoc.App (convertWithOpts, handleOptInfo, defaultOpts, options,
                         parseOptionsFromArgs)
@@ -9,6 +9,7 @@ import Text.Pandoc.Scripting (noEngine)
 import GHC.IO.Encoding
 import Test.Tasty
 import qualified Tests.Command
+import qualified Tests.ImageSize
 import qualified Tests.Old
 import qualified Tests.Readers.Creole
 import qualified Tests.Readers.Docx
@@ -45,6 +46,7 @@ import qualified Tests.Writers.Markdown
 import qualified Tests.Writers.Ms
 import qualified Tests.Writers.Muse
 import qualified Tests.Writers.Native
+import qualified Tests.Writers.ODT
 import qualified Tests.Writers.Org
 import qualified Tests.Writers.Plain
 import qualified Tests.Writers.Powerpoint
@@ -56,7 +58,10 @@ import qualified Tests.Writers.BBCode
 import qualified Tests.Writers.Txt2Tags
 import qualified Tests.XML
 import qualified Tests.MediaBag
+import qualified Tests.Data
 import Text.Pandoc.Shared (inDirectory)
+import System.FilePath (takeDirectory)
+import System.Directory (getCurrentDirectory)
 
 tests :: FilePath -> TestTree
 tests pandocPath = testGroup "pandoc tests"
@@ -64,7 +69,9 @@ tests pandocPath = testGroup "pandoc tests"
         , testGroup "Old" (Tests.Old.tests pandocPath)
         , testGroup "Shared" Tests.Shared.tests
         , testGroup "MediaBag" Tests.MediaBag.tests
+        , testGroup "Data" Tests.Data.tests
         , testGroup "XML" Tests.XML.tests
+        , testGroup "ImageSize" Tests.ImageSize.tests
         , testGroup "Writers"
           [ testGroup "Native" Tests.Writers.Native.tests
           , testGroup "ConTeXt" Tests.Writers.ConTeXt.tests
@@ -78,6 +85,7 @@ tests pandocPath = testGroup "pandoc tests"
           , testGroup "Plain" Tests.Writers.Plain.tests
           , testGroup "AsciiDoc" Tests.Writers.AsciiDoc.tests
           , testGroup "Docx" Tests.Writers.Docx.tests
+          , testGroup "ODT" Tests.Writers.ODT.tests
           , testGroup "RST" Tests.Writers.RST.tests
           , testGroup "TEI" Tests.Writers.TEI.tests
           , testGroup "markua" Tests.Writers.Markua.tests
@@ -130,4 +138,7 @@ main = do
     _ -> inDirectory "test" $ do
            fp <- getExecutablePath
            -- putStrLn $ "Using pandoc executable at " ++ fp
+           -- look for data in data/ directory...
+           cwd <- getCurrentDirectory
+           setEnv "pandoc_datadir" (takeDirectory cwd) -- drop the /test
            defaultMain $ tests fp

@@ -62,6 +62,33 @@ enclosed start end parser = try $ start >> many1Till parser end
 specialChars :: [Char]
 specialChars = "*/~{}\\|[]()<>\"'"
 
+-- | True for characters that terminate a run of plain text, i.e. the
+-- 'specialChars' plus tabs, newlines and spaces.  Written as a @case@ so
+-- that GHC compiles it to a jump table; this is applied to every single
+-- character of the input, so a linear scan over the list here is a
+-- significant cost.  Must be kept in sync with 'specialChars'.
+isStrEnd :: Char -> Bool
+isStrEnd c = case c of
+  '\t' -> True
+  '\n' -> True
+  ' '  -> True
+  '"'  -> True
+  '\'' -> True
+  '('  -> True
+  ')'  -> True
+  '*'  -> True
+  '/'  -> True
+  '<'  -> True
+  '>'  -> True
+  '['  -> True
+  '\\' -> True
+  ']'  -> True
+  '{'  -> True
+  '|'  -> True
+  '}'  -> True
+  '~'  -> True
+  _    -> False
+
 parseCreole :: PandocMonad m => CRLParser m Pandoc
 parseCreole = do
   bs <- mconcat <$> many block
@@ -91,7 +118,7 @@ nowiki = try $ fmap (B.codeBlock . mconcat) (nowikiStart
   where
     content = brackets <|> line
     brackets = try $ option "" (T.singleton <$> newline)
-               <+> (char ' ' >> (manyChar (char ' ') <+> textStr "}}}") <* eol)
+               <+> (char ' ' >> (takeWhileP (== ' ') <+> textStr "}}}") <* eol)
     line = option "" (T.singleton <$> newline) <+> manyTillChar anyChar eol
     eol = lookAhead $ try $ nowikiEnd <|> newline
     nowikiStart = optional newline >> string "{{{" >> skipMany spaceChar >> newline
@@ -215,8 +242,8 @@ image = try $ do
   (orig, src) <- wikiImg
   return $ B.image src "" (B.str orig)
   where
-    linkSrc = manyChar $ noneOf "|}\n\r\t"
-    linkDsc = char '|' >> manyChar (noneOf "}\n\r\t")
+    linkSrc = takeWhileP (`notElem` ("|}\n\r\t" :: [Char]))
+    linkDsc = char '|' >> takeWhileP (`notElem` ("}\n\r\t" :: [Char]))
     wikiImg = try $ do
       string "{{"
       src <- linkSrc
@@ -229,11 +256,11 @@ link = try $ do
   (orig, src) <- uriLink <|> wikiLink
   return $ B.link src "" orig
   where
-    linkSrc = manyChar $ noneOf "|]\n\r\t"
+    linkSrc = takeWhileP (`notElem` ("|]\n\r\t" :: [Char]))
     linkDsc :: PandocMonad m => Text -> CRLParser m B.Inlines
     linkDsc otxt = B.str
                    <$> try (option otxt
-                         (char '|' >> manyChar (noneOf "]\n\r\t")))
+                         (char '|' >> takeWhileP (`notElem` ("]\n\r\t" :: [Char]))))
     linkImg = try $ char '|' >> image
     wikiLink = try $ do
       string "[["
@@ -272,8 +299,7 @@ symbol :: PandocMonad m => CRLParser m B.Inlines
 symbol = fmap (B.str . T.singleton) (oneOf specialChars)
 
 str :: PandocMonad m => CRLParser m B.Inlines
-str = let strChar = noneOf ("\t\n " ++ specialChars) in
-        fmap B.str (many1Char strChar)
+str = fmap B.str (takeWhile1P (not . isStrEnd))
 
 bold :: PandocMonad m => CRLParser m B.Inlines
 bold = B.strong . mconcat <$>

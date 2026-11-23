@@ -41,8 +41,48 @@ testCompareWithOpts opts testName xlsxFP nativeFP =
 tests :: [TestTree]
 tests = [ testGroup "basic"
           [ testCompare
+            "cell fonts"
+            "xlsx-reader/cell-fonts.xlsx"
+            "xlsx-reader/cell-fonts.native"
+          , testCompare
+            "inline and rich-text strings"
+            "xlsx-reader/strings.xlsx"
+            "xlsx-reader/strings.native"
+          , testCompare
             "sheet extraction"
             "xlsx-reader/basic.xlsx"
             "xlsx-reader/basic.native"
+          , testCompare
+            "package-absolute relationship targets"
+            "xlsx-reader/absolute-targets.xlsx"
+            "xlsx-reader/absolute-targets.native"
+          ]
+        , testGroup "values"
+          [ testCompare
+            "numbers, booleans and errors"
+            "xlsx-reader/numbers.xlsx"
+            "xlsx-reader/numbers.native"
+          ]
+        , testGroup "dates"
+          [ testCompare
+            "date and time formats"
+            "xlsx-reader/dates.xlsx"
+            "xlsx-reader/dates.native"
+          , testCompare
+            "1904 date system"
+            "xlsx-reader/dates-1904.xlsx"
+            "xlsx-reader/dates-1904.native"
+          ]
+        , testGroup "merged cells"
+          [ testCompare
+            "merged ranges as spans"
+            "xlsx-reader/merged.xlsx"
+            "xlsx-reader/merged.native"
+          ]
+        , testGroup "charts"
+          [ testCompare
+            "charts on a sheet and on a chart sheet"
+            "xlsx-reader/charts.xlsx"
+            "xlsx-reader/charts.native"
           ]
         ]

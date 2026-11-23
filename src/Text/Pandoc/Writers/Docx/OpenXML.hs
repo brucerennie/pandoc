@@ -25,12 +25,12 @@ import Control.Applicative ((<|>))
 import Control.Monad.Except (catchError)
 import Crypto.Hash (hashWith, SHA1(SHA1))
 import qualified Data.ByteString.Lazy as BL
-import Data.Char (isLetter, isSpace)
+import Data.Char (isSpace, isAlphaNum)
 import Text.Pandoc.Char (isCJK)
 import Data.Ord (comparing)
 import Data.String (fromString)
 import qualified Data.Map as M
-import Data.Maybe (fromMaybe, maybeToList, isJust)
+import Data.Maybe (fromMaybe, maybeToList, isJust, listToMaybe)
 import Control.Monad.State ( gets, modify, MonadTrans(lift) )
 import Control.Monad.Reader ( asks, MonadReader(local) )
 import qualified Data.Set as Set
@@ -110,18 +110,62 @@ rPrTagOrder =
     , "oMath"
     ] [0..])
 
-sortSquashed :: [Element] -> [Element]
-sortSquashed l =
-  sortBy (comparing tagIndex) l
+-- from wml.xsd EG_PPrBase
+pPrTagOrder :: M.Map Text Int
+pPrTagOrder =
+  M.fromList
+  (zip [ "pStyle"
+    , "keepNext"
+    , "keepLines"
+    , "pageBreakBefore"
+    , "framePr"
+    , "widowControl"
+    , "numPr"
+    , "suppressLineNumbers"
+    , "pBdr"
+    , "shd"
+    , "tabs"
+    , "suppressAutoHyphens"
+    , "kinsoku"
+    , "wordWrap"
+    , "overflowPunct"
+    , "topLinePunct"
+    , "autoSpaceDE"
+    , "autoSpaceDN"
+    , "bidi"
+    , "adjustRightInd"
+    , "snapToGrid"
+    , "spacing"
+    , "ind"
+    , "contextualSpacing"
+    , "mirrorIndents"
+    , "suppressOverlap"
+    , "jc"
+    , "textDirection"
+    , "textAlignment"
+    , "textboxTightWrap"
+    , "outlineLvl"
+    , "divId"
+    , "cnfStyle"
+    , "rPr"
+    , "sectPr"
+    , "pPrChange"
+    ] [0..])
+
+sortSquashed :: M.Map Text Int -> Set.Set Element -> [Element]
+sortSquashed tagOrder l =
+  sortBy (comparing tagIndex) (Set.toList l)
   where
     tagIndex :: Element -> Int
     tagIndex el =
-      fromMaybe 0 (M.lookup tag rPrTagOrder)
+      fromMaybe 0 (M.lookup tag tagOrder)
       where tag = (qName . elName) el
 
-squashProps :: EnvProps -> [Element]
-squashProps (EnvProps Nothing es) = sortSquashed es
-squashProps (EnvProps (Just e) es) = sortSquashed (e : es)
+squashProps :: M.Map Text Int -> EnvProps -> [Element]
+squashProps tagOrder (EnvProps Nothing es) =
+  sortSquashed tagOrder es
+squashProps tagOrder (EnvProps (Just e) es) =
+  sortSquashed tagOrder (Set.insert e es)
 
 -- | Certain characters are invalid in XML even if escaped.
 -- See #1992
@@ -236,12 +280,18 @@ writeOpenXML :: PandocMonad m
              -> WS m (Text, [Element], [Element])
 writeOpenXML opts (Pandoc meta blocks) = do
   setupTranslations meta
+  -- Cache the rStyle element for each highlighting token type, so that
+  -- it need not be recomputed for every Code inline.  It depends only
+  -- on the style maps, which don't change during writing.
+  tokTypesMap <- M.fromList <$>
+    mapM (\tt -> (tt,) <$> rStyleM (fromString $ show tt)) [KeywordTok ..]
+  modify $ \st -> st{ stTokTypesMap = tokTypesMap }
   let includeTOC = writerTableOfContents opts || lookupMetaBool "toc" meta
   let includeLOF = writerListOfFigures opts || lookupMetaBool "lof" meta
   let includeLOT = writerListOfTables opts || lookupMetaBool "lot" meta
   abstractTitle <- case lookupMeta "abstract-title" meta of
       Just (MetaBlocks bs)   -> pure $ stringify bs
-      Just (MetaInlines ils) -> pure $ stringify ils
+      Just (MetaInlines ils) -> pure $ stringifyInlines ils
       Just (MetaString s)    -> pure s
       _                      -> translateTerm Abstract
   abstract <-
@@ -326,9 +376,13 @@ writeOpenXML opts (Pandoc meta blocks) = do
 
 -- | Convert a list of Pandoc blocks to OpenXML.
 blocksToOpenXML :: (PandocMonad m) => WriterOptions -> [Block] -> WS m [Content]
-blocksToOpenXML opts =
-  fmap concat . mapM (blockToOpenXML opts)
-  . separateTables . filter (not . isForeignRawBlock)
+blocksToOpenXML opts bs = do
+  oldFirstPara <- gets stFirstPara
+  modify $ \st -> st{ stFirstPara = True }
+  result <- concat <$> mapM (blockToOpenXML opts)
+            (separateTables (filter (not . isForeignRawBlock) bs))
+  modify $ \st -> st{ stFirstPara = oldFirstPara }
+  pure result
 
 isForeignRawBlock :: Block -> Bool
 isForeignRawBlock (RawBlock format _) = format /= "openxml"
@@ -358,12 +412,44 @@ getUniqueId = do
 dynamicStyleKey :: Text
 dynamicStyleKey = "custom-style"
 
+-- | Paragraph properties for a CSL-generated bibliography, derived from
+-- the hints @Text.Pandoc.Citeproc@ puts on the bibliography's Div:
+-- a @hanging-indent@ class and @line-spacing@/@entry-spacing@ attributes.
+cslBibParaProps :: [Text] -> [(Text, Text)] -> [Element]
+cslBibParaProps classes kvs =
+  [ mknode "w:ind" [("w:left", "720"), ("w:hanging", "720")] ()
+  | "hanging-indent" `elem` classes ] ++
+  [ mknode "w:spacing" spacingAttrs () | not (null spacingAttrs) ]
+  where
+    spacingAttrs = lineAttr ++ entryAttr
+    lineAttr = case lookup "line-spacing" kvs >>= safeRead of
+                 Just ls | ls > (1 :: Double) ->
+                   [ ("w:line", tshow (round (ls * 240) :: Int))
+                   , ("w:lineRule", "auto") ]
+                 _ -> []
+    entryAttr = case lookup "entry-spacing" kvs >>= safeRead of
+                  Just es | es > (0 :: Double) ->
+                    -- entry-spacing is given in em; 1 em ~ 240 twips
+                    [ ("w:after", tshow (round (es * 240) :: Int)) ]
+                  _ -> []
+
 -- | Convert a Pandoc block element to OpenXML.
 blockToOpenXML :: (PandocMonad m) => WriterOptions -> Block -> WS m [Content]
 blockToOpenXML opts blk = withDirection $ blockToOpenXML' opts blk
 
 blockToOpenXML' :: (PandocMonad m) => WriterOptions -> Block -> WS m [Content]
-blockToOpenXML' opts (Div (ident,_classes,kvs) bs) = do
+-- A section's bookmark goes in its heading's paragraph, around the
+-- heading's text, as Word writes one: it then marks the heading rather
+-- than the whole section (#11845, #8825), and the docx reader, which
+-- reads bookmarks only inside paragraphs, finds it, so a link to the
+-- heading survives a round trip.
+blockToOpenXML' opts (Div (ident,classes,kvs) (Header lev ("",hcls,hkvs) ils : bs))
+  | "section" `elem` classes
+  , not (T.null ident)
+  = blockToOpenXML' opts
+      (Div ("",classes,kvs) (Header lev (ident,hcls,hkvs) ils : bs))
+blockToOpenXML' opts (Div (ident,classes,kvs) bs) = do
+  when ("math" `elem` classes) $ setFirstPara
   stylemod <- case lookup dynamicStyleKey kvs of
                    Just (fromString . T.unpack -> sty) -> do
                       modify $ \s ->
@@ -384,9 +470,18 @@ blockToOpenXML' opts (Div (ident,_classes,kvs) bs) = do
   let langmod = case lookup "lang" kvs of
                   Nothing -> id
                   Just lang -> local (\env -> env{envLang = Just lang})
+  -- citeproc adds formatting hints for bibliographies generated
+  -- from a CSL style; see Text.Pandoc.Citeproc (#11871).
+  let isCslBib = ident == "refs" || "csl-bib-body" `elem` classes
+  let cslmod = if not isCslBib
+                  then id
+                  else case cslBibParaProps classes kvs of
+                         []    -> id
+                         props -> foldr (.) id (map withParaProp props)
   header <- dirmod $ stylemod $ blocksToOpenXML opts hs
-  contents <- dirmod $ bibmod $ stylemod $ langmod $ blocksToOpenXML opts bs'
+  contents <- dirmod $ bibmod $ cslmod $ stylemod $ langmod $ blocksToOpenXML opts bs'
   wrapBookmark ident $ header <> contents
+
 blockToOpenXML' opts (Header lev (ident,_,kvs) lst) = do
   setFirstPara
   let isSection = case writerTopLevelDivision opts of
@@ -447,16 +542,16 @@ blockToOpenXML' opts (Para lst)
       let displayMathPara = case lst of
                                  [x] -> isDisplayMath x
                                  _   -> False
-      paraProps <- getParaProps displayMathPara
       bodyTextStyle <- pStyleM $ if isFirstPara
                        then "First Paragraph"
                        else "Body Text"
-      let paraProps' = case paraProps of
-            []               -> [mknode "w:pPr" [] [bodyTextStyle]]
-            ps               -> ps
+      paraProps <- local (\env -> env{ envParaProperties =
+                                        envParaProperties env <>
+                                        EnvProps (Just bodyTextStyle) mempty })
+                      (getParaProps displayMathPara)
       modify $ \s -> s { stFirstPara = False }
       contents <- inlinesToOpenXML opts lst
-      return [Elem $ mknode "w:p" [] (map Elem paraProps' ++ contents)]
+      return [Elem $ mknode "w:p" [] (map Elem paraProps ++ contents)]
 blockToOpenXML' opts (LineBlock lns) = blockToOpenXML opts $ linesToPara lns
 blockToOpenXML' _ b@(RawBlock format str)
   | format == Format "openxml" = return [
@@ -530,7 +625,7 @@ blockToOpenXML' opts (Figure (ident, _, _) (Caption _ longcapt) body) = do
     then "Figure"
     else "Captioned Figure"
   paraProps <- local
-    (\env -> env { envParaProperties = EnvProps (Just prop) [] <>
+    (\env -> env { envParaProperties = EnvProps (Just prop) mempty <>
                                        envParaProperties env })
     (getParaProps False)
 
@@ -677,14 +772,28 @@ getTextProps = do
   let langnode = case mblang of
                    Nothing -> mempty
                    Just l  -> EnvProps Nothing
-                               [mknode "w:lang" [("w:val", l)] ()]
-  let squashed = squashProps (props <> langnode)
+                               (Set.singleton
+                                (mknode "w:lang" [("w:val", l)] ()))
+  let squashed = squashProps rPrTagOrder (props <> langnode)
   return [mknode "w:rPr" [] squashed | (not . null) squashed]
 
 withTextProp :: PandocMonad m => Element -> WS m a -> WS m a
-withTextProp d p =
-  local (\env -> env {envTextProperties = ep <> envTextProperties env}) p
-  where ep = if isStyle d then EnvProps (Just d) [] else EnvProps Nothing [d]
+withTextProp d
+  | isStyle d = local (\env -> env{ envTextProperties = EnvProps (Just d)
+                                     (otherElements (envTextProperties env)) })
+  | isToggle d = local (\env ->
+                          let EnvProps mbsty elts = envTextProperties env
+                          in  env{ envTextProperties = EnvProps mbsty $
+                                    if d `Set.member` elts
+                                       then Set.delete d elts
+                                       else Set.insert d elts })
+  | otherwise = local (\env -> env{ envTextProperties =
+                                    EnvProps Nothing (Set.singleton d) <>
+                                    envTextProperties env })
+
+-- Let emphasis flip-flop, so emph within emph is upright:
+isToggle :: Element -> Bool
+isToggle el = qName (elName el) `elem` ["i", "iCs"]
 
 withTextPropM :: PandocMonad m => WS m Element -> WS m a -> WS m a
 withTextPropM md p = do
@@ -697,14 +806,21 @@ getParaProps displayMathPara = do
   listLevel <- asks envListLevel
   numid <- asks envListNumId
   numIdUsed <- gets stNumIdUsed
-  -- clear numId after first use to support multiple paragraphs in the same bullet
-  -- baseListId is the code for no list marker
-  let numid' = if numIdUsed then baseListId else numid
   modify $ \st -> st{ stNumIdUsed = True }
-  let listPr = [mknode "w:numPr" []
-                [ mknode "w:ilvl" [("w:val",tshow listLevel)] ()
-                , mknode "w:numId" [("w:val",tshow numid')] () ] | listLevel >= 0 && not displayMathPara]
-  return $ case squashProps (EnvProps Nothing listPr <> props) of
+  -- Only the first paragraph of a list item gets numbering.  Subsequent
+  -- paragraphs in the same item are not numbered, but indented to line
+  -- up with the item's text (see the w:ind in mkLvl), so that they are
+  -- not mistaken for items of another list (#9197):
+  let listPr
+        | listLevel < 0 || displayMathPara = []
+        | numIdUsed = [mknode "w:ind"
+                        [ ("w:left", tshow (listLevel * 720 + 720))
+                        , ("w:firstLine", "0") ] ()]
+        | otherwise = [mknode "w:numPr" []
+                        [ mknode "w:ilvl" [("w:val",tshow listLevel)] ()
+                        , mknode "w:numId" [("w:val",tshow numid)] () ]]
+  return $ case squashProps pPrTagOrder
+                  (EnvProps Nothing (Set.fromList listPr) <> props) of
                 [] -> []
                 ps -> [mknode "w:pPr" [] ps]
 
@@ -747,6 +863,69 @@ formattedRun els = do
   props <- getTextProps
   return $ mknode "w:r" [] $ props ++ els
 
+-- | Inject a highlight into every run of a converted math element:
+-- glyph runs in a @w:rPr@ child, and a structure's non-glyph parts
+-- (bars, operator spacing) in the @m:ctrlPr@ of its property element
+-- (@m:sSupPr@ and the like), which Word pens when an equation is
+-- highlighted by hand and which the converters omit when empty.
+highlightMathRuns :: XML.Element -> XML.Element -> XML.Element
+highlightMathRuns hl = go
+ where
+  isTag pfx n e = XML.qName (XML.elName e) == n
+              && XML.qPrefix (XML.elName e) == Just pfx
+  go e
+    | isTag "m" "r" e || isTag "m" "ctrlPr" e =
+        e{ XML.elContent = insertHl (map walkContent (XML.elContent e)) }
+    | Just "m" <- XML.qPrefix (XML.elName e)
+    , XML.qName (XML.elName e) `elem` structures =
+        e{ XML.elContent =
+             ensureCtrlPr (XML.qName (XML.elName e) <> "Pr")
+                          (map walkContent (XML.elContent e)) }
+    | otherwise = e{ XML.elContent = map walkContent (XML.elContent e) }
+  walkContent (XML.Elem e) = XML.Elem (go e)
+  walkContent c            = c
+  -- OMML structures (ECMA-376 22.1.2); each takes an m:<name>Pr
+  -- property element as its first child
+  structures =
+    [ "sSup", "sSub", "sSubSup", "sPre"
+    , "f", "nary", "d", "rad", "func", "groupChr"
+    , "limLow", "limUpp", "m", "eqArr", "bar"
+    , "phant", "box", "borderBox", "acc" ]
+  pennedCtrlPr = XML.Elem (mknode "m:ctrlPr" [] (mknode "w:rPr" [] hl))
+  ensureCtrlPr prName cs = case cs of
+    (XML.Elem e : rest) | isTag "m" prName e ->
+      if any isCtrlPr (XML.elContent e)
+        then cs
+        else XML.Elem e{ XML.elContent = XML.elContent e ++ [pennedCtrlPr] } : rest
+    _ -> XML.Elem (mknode ("m:" <> prName) [] pennedCtrlPr) : cs
+  isCtrlPr (XML.Elem e) = isTag "m" "ctrlPr" e
+  isCtrlPr _            = False
+  -- merge into an existing w:rPr child if there is one, else insert a
+  -- fresh w:rPr after an optional m:rPr
+  insertHl cs =
+    case break isWrPr cs of
+      (before, XML.Elem e : rest) ->
+        before ++ XML.Elem e{ XML.elContent = insertInRPr (XML.elContent e) } : rest
+      _ ->
+        case cs of
+          (XML.Elem e : rest) | isTag "m" "rPr" e ->
+            XML.Elem e : wrPr : rest
+          _ -> wrPr : cs
+  -- w:rPr children come in a fixed order (rPrTagOrder): the
+  -- highlight goes before the first child that must follow it, and
+  -- after children not in the order
+  insertInRPr [] = [XML.Elem hl]
+  insertInRPr (c:rest)
+    | followsHl c = XML.Elem hl : c : rest
+    | otherwise = c : insertInRPr rest
+  followsHl (XML.Elem e) =
+    maybe False (> rPrTagOrder M.! "highlight") $
+      M.lookup (XML.qName (XML.elName e)) rPrTagOrder
+  followsHl _ = False
+  isWrPr (XML.Elem e) = isTag "w" "rPr" e
+  isWrPr _            = False
+  wrPr = XML.Elem (mknode "w:rPr" [] hl)
+
 -- | Convert an inline element to OpenXML.
 inlineToOpenXML :: PandocMonad m => WriterOptions -> Inline -> WS m [Content]
 inlineToOpenXML opts il = withDirection $ inlineToOpenXML' opts il
@@ -754,8 +933,8 @@ inlineToOpenXML opts il = withDirection $ inlineToOpenXML' opts il
 inlineToOpenXML' :: PandocMonad m => WriterOptions -> Inline -> WS m [Content]
 inlineToOpenXML' _ (Str str) =
   map Elem <$> formattedString str
-inlineToOpenXML' opts Space = inlineToOpenXML opts (Str " ")
-inlineToOpenXML' opts SoftBreak = inlineToOpenXML opts (Str " ")
+inlineToOpenXML' opts Space = inlineToOpenXML' opts (Str " ")
+inlineToOpenXML' opts SoftBreak = inlineToOpenXML' opts (Str " ")
 inlineToOpenXML' opts (Span ("",["mark"],[]) ils) =
   withTextProp (mknode "w:highlight" [("w:val","yellow")] ()) $
     inlinesToOpenXML opts ils
@@ -773,16 +952,13 @@ inlineToOpenXML' opts (Span ("",["csl-right-inline"],[]) ils) =
 inlineToOpenXML' opts (Span ("",["csl-indent"],[]) ils) =
   inlinesToOpenXML opts ils
 inlineToOpenXML' _ (Span (ident,["comment-start"],kvs) ils) = do
-  -- prefer the "id" in kvs, since that is the one produced by the docx
-  -- reader.
-  let ident' = fromMaybe ident (lookup "id" kvs)
-      kvs' = filter (("id" /=) . fst) kvs
+  let ident' = fromMaybe ident (lookup "comment-id" kvs <|> lookup "id" kvs)
+      kvs' = filter ((\x -> x /= "comment-id" && x /= "id") . fst) kvs
   modify $ \st -> st{ stComments = (("id",ident'):kvs', ils) : stComments st }
   return [ Elem $ mknode "w:commentRangeStart" [("w:id", ident')] () ]
 inlineToOpenXML' opts (Span (ident,["comment-end"],kvs) content) = do
-  -- prefer the "id" in kvs, since that is the one produced by the docx
-  -- reader.
-  let ident' = fromMaybe ident (lookup "id" kvs)
+  -- now we use comment-id, but support id for legacy compat:
+  let ident' = fromMaybe ident (lookup "comment-id" kvs <|> lookup "id" kvs)
   -- process nested content: see #8189
   nestedContent <- inlinesToOpenXML opts content
   let thisCommentEnd =
@@ -883,19 +1059,25 @@ inlineToOpenXML' opts (Math mathType str) = do
   when (mathType == DisplayMath) setFirstPara
   res <- (lift . lift) (convertMath writeOMML mathType str)
   case res of
-       Right r -> return [Elem $ fromXLElement r]
+       Right r -> do
+         tprops <- asks envTextProperties
+         let r' = fromXLElement r
+             mbhl = listToMaybe
+               [ e | e <- Set.toList (otherElements tprops)
+                    , XML.qName (XML.elName e) == "highlight"
+                    , XML.qPrefix (XML.elName e) == Just "w" ]
+         return [Elem (maybe r' (`highlightMathRuns` r') mbhl)]
        Left il -> inlineToOpenXML' opts il
 inlineToOpenXML' opts (Cite _ lst) = inlinesToOpenXML opts lst
 inlineToOpenXML' opts (Code attrs str) = do
-  let alltoktypes = [KeywordTok ..]
-  tokTypesMap <- mapM (\tt -> (,) tt <$> rStyleM (fromString $ show tt)) alltoktypes
+  tokTypesMap <- gets stTokTypesMap
   let unhighlighted = (map Elem . intercalate [br]) `fmap`
                        mapM formattedString (T.lines str)
       formatOpenXML _fmtOpts = intercalate [br] . map (map toHlTok)
       toHlTok (toktype,tok) =
         mknode "w:r" []
           [ mknode "w:rPr" [] $
-            maybeToList (lookup toktype tokTypesMap)
+            maybeToList (M.lookup toktype tokTypesMap)
             , mknode "w:t" [("xml:space","preserve")] tok ]
   let highlighted =
         case highlight (writerSyntaxMap opts) formatOpenXML attrs str of
@@ -911,7 +1093,6 @@ inlineToOpenXML' opts (Code attrs str) = do
 inlineToOpenXML' opts (Note bs) = do
   notes <- gets stFootnotes
   notenum <- getUniqueId
-  oldFirstPara <- gets stFirstPara
   footnoteStyle <- rStyleM "Footnote Reference"
   let notemarker = mknode "w:r" []
                    [ mknode "w:rPr" [] footnoteStyle
@@ -927,19 +1108,19 @@ inlineToOpenXML' opts (Note bs) = do
                                 , envInNote = True })
               (withParaPropM (pStyleM "Footnote Text") $
                blocksToOpenXML opts $ insertNoteRef bs)
-  modify $ \s -> s{ stFirstPara = oldFirstPara }
   let newnote = mknode "w:footnote" [("w:id", notenum)] contents
   modify $ \s -> s{ stFootnotes = newnote : notes }
   return [ Elem $ mknode "w:r" []
            [ mknode "w:rPr" [] footnoteStyle
            , mknode "w:footnoteReference" [("w:id", notenum)] () ] ]
 -- internal link:
-inlineToOpenXML' opts (Link _ txt (T.uncons -> Just ('#', xs),_)) = do
+inlineToOpenXML' opts (Link _ txt (T.uncons -> Just ('#', xs),title)) = do
   contents <- withTextPropM (rStyleM "Hyperlink") $ inlinesToOpenXML opts txt
   return
-    [ Elem $ mknode "w:hyperlink" [("w:anchor", toBookmarkName xs)] contents ]
+    [ Elem $ mknode "w:hyperlink"
+        (("w:anchor", toBookmarkName xs) : tooltipAttr title) contents ]
 -- external link:
-inlineToOpenXML' opts (Link _ txt (src,_)) = do
+inlineToOpenXML' opts (Link _ txt (src,title)) = do
   contents <- withTextPropM (rStyleM "Hyperlink") $ inlinesToOpenXML opts txt
   extlinks <- gets stExternalLinks
   id' <- case M.lookup src extlinks of
@@ -949,7 +1130,8 @@ inlineToOpenXML' opts (Link _ txt (src,_)) = do
               modify $ \st -> st{ stExternalLinks =
                         M.insert src i extlinks }
               return i
-  return [ Elem $ mknode "w:hyperlink" [("r:id",id')] contents ]
+  return [ Elem $ mknode "w:hyperlink" (("r:id",id') : tooltipAttr title)
+             contents ]
 inlineToOpenXML' opts (Image attr@(imgident, _, _) alt (src, title)) = do
   pageWidth <- asks envPrintWidth
   imgs <- gets stImages
@@ -995,10 +1177,23 @@ inlineToOpenXML' opts (Image attr@(imgident, _, _) alt (src, title)) = do
         (xpt,ypt) = desiredSizeInPoints opts attr
                (either (const def) id (imageSize opts img))
         -- 12700 emu = 1 pt
-        pageWidthPt = case dimension Width attr of
-                        Just (Percent a) -> pageWidth * floor (a * 127)
-                        _                -> pageWidth * 12700
-        (xemu,yemu) = fitToPage (xpt * 12700, ypt * 12700) pageWidthPt
+        pageWidthPt = fromIntegral pageWidth
+        pageWidthEmu = pageWidth * 12700
+        (xpt', ypt') =
+          case (dimension Width attr, dimension Height attr) of
+                 (Just (Percent a), Just (Percent b))
+                   -> ((a / 100.0) * pageWidthPt, (b / 100.0) * pageWidthPt)
+                      -- note, should use pageHeightPt but we don't have this
+                      -- information.
+                 (Just (Percent a), _)
+                   -> ((a / 100.0) * pageWidthPt,
+                       (a / 100.0) * pageWidthPt * (ypt / xpt))
+                 (_, Just (Percent b))
+                   -> ((b / 100.0) * pageWidthPt * (xpt / ypt),
+                       (b / 100.0) * pageWidthPt)
+                 (_, _) -> (xpt, ypt)
+        (xemu,yemu) = fitToPage (xpt' * 12700,
+                                 ypt' * 12700) pageWidthEmu
         cNvPicPr = mknode "pic:cNvPicPr" [] $
                          mknode "a:picLocks" [("noChangeArrowheads","1")
                                              ,("noChangeAspect","1")] ()
@@ -1041,7 +1236,7 @@ inlineToOpenXML' opts (Image attr@(imgident, _, _) alt (src, title)) = do
               , mknode "wp:effectExtent"
                 [("b","0"),("l","0"),("r","0"),("t","0")] ()
               , mknode "wp:docPr"
-                [ ("descr", stringify alt)
+                [ ("descr", stringifyInlines alt)
                 , ("title", title)
                 , ("id", docprid)
                 , ("name","Picture")
@@ -1102,15 +1297,25 @@ withDirection x = do
   -- We want to clean all bidirection (bidi) and right-to-left (rtl)
   -- properties from the props first. This is because we don't want
   -- them to stack up.
-  let paraProps' = filter (\e -> (qName . elName) e /= "bidi") (otherElements paraProps)
-      textProps' = filter (\e -> (qName . elName) e /= "rtl") (otherElements textProps)
+  let hasBidi = any (\e -> (qName . elName) e == "bidi") (otherElements paraProps)
+      hasRtl = any (\e -> (qName . elName) e == "rtl") (otherElements textProps)
+      paraProps' = Set.filter (\e -> (qName . elName) e /= "bidi")
+                     (otherElements paraProps)
+      textProps' = Set.filter (\e -> (qName . elName) e /= "rtl")
+                     (otherElements textProps)
       paraStyle = styleElement paraProps
       textStyle = styleElement textProps
-  if isRTL
+  if not isRTL && not hasBidi && not hasRtl
+    -- fast path: LTR with no bidi/rtl props to remove, so the
+    -- environment is unchanged; skip the 'local' rebuild.
+    then x
+    else if isRTL
     -- if we are going right-to-left, we (re?)add the properties.
     then flip local x $
-         \env -> env { envParaProperties = EnvProps paraStyle $ mknode "w:bidi" [] () : paraProps'
-                     , envTextProperties = EnvProps textStyle $ mknode "w:rtl" [] () : textProps'
+         \env -> env { envParaProperties = EnvProps paraStyle $
+                        Set.insert (mknode "w:bidi" [] ()) paraProps'
+                     , envTextProperties = EnvProps textStyle $
+                        Set.insert (mknode "w:rtl" [] ()) textProps'
                      }
     else flip local x $ \env -> env { envParaProperties = EnvProps paraStyle paraProps'
                                     , envTextProperties = EnvProps textStyle textProps'
@@ -1127,20 +1332,35 @@ wrapBookmark ident contents = do
   return $ Elem bookmarkStart : contents ++ [Elem bookmarkEnd]
 
 -- Word imposes a 40 character limit on bookmark names and requires
--- that they begin with a letter.  So we just use a hash of the
--- identifier when otherwise we'd have an illegal bookmark name.
+-- that they begin with a letter or @_@ and contain only letters,
+-- numbers or underscores. Bookmarks beginning with @_@ are
+-- hidden in the user interface (and in particular hidden from screen
+-- readers, which we want); these are to be used for cross-references.
+-- When the id is otherwise illegal we use a hash of the identifier.
 toBookmarkName :: Text -> Text
 toBookmarkName s
-  | Just (c, _) <- T.uncons s
-  , isLetter c
-  , T.length s <= 40 = s
-  | otherwise = T.pack $ 'X' : drop 1 (show (hashWith SHA1 (fromText s)))
+  | T.length s < 40
+  , T.all (\c -> isAlphaNum c || c == '_') s
+    = "_" <> s
+  | otherwise = "_" <> T.pack (drop 1 (show (hashWith SHA1 (fromText s))))
+  -- we drop 1 because a SHA1 is 40 characters and we need room for the `_`
+
+-- A link's title is written as its ScreenTip (@w:tooltip@).
+tooltipAttr :: Text -> [(Text, Text)]
+tooltipAttr title = [("w:tooltip", title) | not (T.null title)]
 
 maxListLevel :: Int
 maxListLevel = 8
 
+-- Merge adjacent Strs, and any Space between two Strs, into a single
+-- Str.  Chunks are accumulated and concatenated all at once, to avoid
+-- quadratic copying when a long Str/Space sequence (e.g. an entire
+-- paragraph) collapses into one Str.
 convertSpace :: [Inline] -> [Inline]
-convertSpace (Str x : Space : Str y : xs) = convertSpace (Str (x <> " " <> y) : xs)
-convertSpace (Str x : Str y : xs)         = convertSpace (Str (x <> y) : xs)
-convertSpace (x:xs)                       = x : convertSpace xs
-convertSpace []                           = []
+convertSpace (Str x : xs) = go [x] xs
+  where
+    go acc (Str y : ys)         = go (y : acc) ys
+    go acc (Space : Str y : ys) = go (y : " " : acc) ys
+    go acc ys = Str (T.concat (reverse acc)) : convertSpace ys
+convertSpace (x:xs) = x : convertSpace xs
+convertSpace [] = []

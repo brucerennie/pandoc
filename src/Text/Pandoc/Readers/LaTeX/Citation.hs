@@ -10,11 +10,10 @@ import Text.Pandoc.Class
 import Text.Pandoc.Readers.LaTeX.Parsing
 import Text.Pandoc.Builder as B
 import qualified Data.Map as M
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Control.Applicative ((<|>), optional, many)
 import Control.Monad (mzero)
-import Control.Monad.Trans (lift)
-import Control.Monad.Except (throwError)
 import Text.Pandoc.Parsing hiding (blankline, many, mathDisplay, mathInline,
                             optional, space, spaces, withRaw, (<|>))
 
@@ -94,13 +93,16 @@ addSuffix _ _ = []
 
 simpleCiteArgs :: forall m . PandocMonad m => LP m Inlines -> LP m [Citation]
 simpleCiteArgs inline = try $ do
+  -- apacite: \cite<prefix>[suffix]{key}
+  angled <- optionMaybe $ toList <$> angleOpt
   first  <- optionMaybe $ toList <$> opt
   second <- optionMaybe $ toList <$> opt
   keys <- try $ bgroup *> manyTill citationLabel egroup
-  let (pre, suf) = case (first  , second ) of
-        (Just s , Nothing) -> (mempty, s )
-        (Just s , Just t ) -> (s , t )
-        _                  -> (mempty, mempty)
+  let (pre, suf) = case (angled, first  , second ) of
+        (Just p , s      , _      ) -> (p, fromMaybe mempty s)
+        (_      , Just s , Nothing) -> (mempty, s )
+        (_      , Just s , Just t ) -> (s , t )
+        _                           -> (mempty, mempty)
       conv k = Citation { citationId      = k
                         , citationPrefix  = []
                         , citationSuffix  = []
@@ -110,17 +112,17 @@ simpleCiteArgs inline = try $ do
                         }
   return $ addPrefix pre $ addSuffix suf $ map conv keys
  where
+  angleOpt :: PandocMonad m => LP m Inlines
+  angleOpt = do
+    toks <- try (sp *> symbol '<' *> manyTill anyTok (symbol '>') <* sp)
+    parseFromToks (mconcat <$> many inline) toks
   opt :: PandocMonad m => LP m Inlines
   opt = do
-    toks <- try (sp *> bracketedToks <* sp)
-    -- now parse the toks as inlines
-    st <- getState
-    parsed <- lift $
-      runParserT (mconcat <$> many inline) st "bracketed option"
-       (TokStream False toks)
-    case parsed of
-      Right result -> return result
-      Left e       -> throwError $ fromParsecError (toSources toks) e
+    toks <- try (bracketedToks <* sp)
+    -- now parse the toks as inlines; parseFromToks preserves any
+    -- state changes (e.g. macro definitions), since an optional
+    -- argument is not a TeX group
+    parseFromToks (mconcat <$> many inline) toks
 
 
 

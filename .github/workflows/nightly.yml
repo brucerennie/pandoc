@@ -18,19 +18,34 @@ jobs:
     - name: Install ghc
       run: |
         ghcup install ghc --set 9.10
-        ghcup install cabal --set 3.14
+        ghcup install cabal --set 3.18.2.0
+
+    - name: Update cabal and compute cache keys
+      id:   cabal-keys
+      uses: ./.github/actions/cabal-cache-key
+
+    # Shares the store saved by the CI job for this ghc, so nothing is saved
+    # here.  --enable-tests makes the solver choose the same dependencies as CI.
+    - name: Restore cabal store
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          ${{ steps.cabal-keys.outputs.store-dir }}
+        key: ${{ steps.cabal-keys.outputs.store-key }}
+        restore-keys: |
+          ${{ steps.cabal-keys.outputs.store-restore-key }}
 
     - name: Install dependencies
       run: |
           ghc --version
           cabal --version
-          cabal update
-          cabal build --dependencies-only -fembed_data_files -fnightly pandoc-cli
+          cabal build --dependencies-only --enable-tests -fembed_data_files -fnightly pandoc-cli
     - name: Build and install artifact
       run: |
           export ARTIFACTS=nightly-linux/pandoc-nightly-linux-$(date +%Y-%m-%d)
           mkdir -p ${ARTIFACTS}
-          cabal install --installdir="${ARTIFACTS}" --install-method=copy -fembed_data_files -fnightly pandoc-cli
+          cabal build --enable-tests -fembed_data_files -fnightly pandoc-cli
+          cp "$(cabal list-bin --enable-tests -fembed_data_files -fnightly pandoc-cli)" "${ARTIFACTS}/pandoc"
           strip "${ARTIFACTS}/pandoc"
           cp COPYRIGHT ${ARTIFACTS}/
           echo "Built from ${GITHUB_SHA}" > ${ARTIFACTS}/README.nightly.txt
@@ -48,18 +63,34 @@ jobs:
     - name: Install ghc
       run: |
         ghcup install ghc --set 9.10
-        ghcup install cabal --set 3.14
+        ghcup install cabal --set 3.18.2.0
+
+    - name: Update cabal and compute cache keys
+      id:   cabal-keys
+      uses: ./.github/actions/cabal-cache-key
+
+    # Shares the store saved by the CI windows job, so nothing is saved here.
+    - name: Restore cabal store
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          ${{ steps.cabal-keys.outputs.store-dir }}
+        key: ${{ steps.cabal-keys.outputs.store-key }}
+        restore-keys: |
+          ${{ steps.cabal-keys.outputs.store-restore-key }}
+
     - name: Install dependencies
       run: |
-          cabal update
-          cabal build --dependencies-only -fembed_data_files -fnightly pandoc-cli
+          cabal build --dependencies-only --enable-tests -fembed_data_files -fnightly pandoc-cli
     - name: Build artifacts
       shell: cmd
       run: |
           for /f %%a in ('powershell -Command "Get-Date -format yyyy-MM-dd"') do set THEDATE=%%a
           set ARTIFACTS=%CD%\nightly-windows\pandoc-nightly-windows-%THEDATE%
           mkdir %ARTIFACTS%
-          cabal install --install-method=copy --installdir=%ARTIFACTS% -fnightly -fembed_data_files pandoc-cli
+          cabal build --enable-tests -fnightly -fembed_data_files pandoc-cli
+          for /f "delims=" %%a in ('cabal list-bin --enable-tests -fnightly -fembed_data_files pandoc-cli') do set BINPATH=%%a
+          copy %BINPATH% %ARTIFACTS%
           strip %ARTIFACTS%/pandoc
           copy COPYRIGHT %ARTIFACTS%
           ren %ARTIFACTS%\COPYRIGHT COPYRIGHT.txt
@@ -71,7 +102,7 @@ jobs:
 
   macos:
 
-    runs-on: macos-latest
+    runs-on: macos-15
 
     steps:
     - uses: actions/checkout@v7
@@ -81,17 +112,33 @@ jobs:
     - name: Install ghc
       run: |
         ghcup install ghc --set 9.10
-        ghcup install cabal --set 3.14
+        ghcup install cabal --set 3.18.2.0
         echo "$HOME/.ghcup/bin" >> "${GITHUB_PATH}"
+
+    - name: Update cabal and compute cache keys
+      id:   cabal-keys
+      uses: ./.github/actions/cabal-cache-key
+
+    # CI doesn't run on macOS, so this job saves its own store.
+    - name: Restore cabal store
+      id:   cabal-global
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          ${{ steps.cabal-keys.outputs.store-dir }}
+        key: ${{ steps.cabal-keys.outputs.store-key }}
+        restore-keys: |
+          ${{ steps.cabal-keys.outputs.store-restore-key }}
+
     - name: Install dependencies
       run: |
-          cabal update
-          cabal build --dependencies-only -fnightly -fembed_data_files -fhttp pandoc-cli
+          cabal build --dependencies-only --enable-tests -fnightly -fembed_data_files pandoc-cli
     - name: Build artifacts
       run: |
           export ARTIFACTS=nightly-macos/pandoc-nightly-macos-$(date +%Y-%m-%d)
           mkdir -p ${ARTIFACTS}
-          cabal install --install-method=copy --installdir="${ARTIFACTS}" -fnightly -fembed_data_files pandoc-cli
+          cabal build --enable-tests -fnightly -fembed_data_files pandoc-cli
+          cp "$(cabal list-bin --enable-tests -fnightly -fembed_data_files pandoc-cli)" "${ARTIFACTS}/pandoc"
           strip "${ARTIFACTS}/pandoc"
           cp COPYRIGHT ${ARTIFACTS}/
           echo "Built from ${GITHUB_SHA}" > ${ARTIFACTS}/README.nightly.txt
@@ -99,6 +146,14 @@ jobs:
       with:
         name: nightly-macos
         path: nightly-macos
+
+    - name: Save cabal store
+      if: steps.cabal-global.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: |
+          ${{ steps.cabal-keys.outputs.store-dir }}
+        key: ${{ steps.cabal-global.outputs.cache-primary-key }}
 
 #  nightly workflow never finishes...
 #  wasm:
@@ -108,7 +163,7 @@ jobs:
 #      fail-fast: true
 #    steps:
 #    - uses: actions/checkout@v7
-#    - uses: wimpysworld/nothing-but-nix@v9
+#    - uses: wimpysworld/nothing-but-nix@v10
 #      with:
 #       hatchet-protocol: 'rampage'
 #    - uses: cachix/install-nix-action@v31
@@ -116,7 +171,7 @@ jobs:
 #        nix_path: nixpkgs=channel:nixos-unstable
 #    - name: Cache cabal work
 #      id:   cabal-local
-#      uses: actions/cache@v5
+#      uses: actions/cache@v6
 #      with:
 #        path: |
 #          dist-newstyle

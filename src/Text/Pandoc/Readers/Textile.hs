@@ -56,7 +56,7 @@ import Text.Pandoc.Options
 import Text.Pandoc.Parsing
 import Text.Pandoc.Readers.HTML (htmlTag, isBlockTag, isInlineTag)
 import Text.Pandoc.Readers.LaTeX (rawLaTeXBlock, rawLaTeXInline)
-import Text.Pandoc.Shared (trim, tshow)
+import Text.Pandoc.Shared (trim, tshow, compactifyTable)
 import Text.Read (readMaybe)
 
 -- | Parse a Textile text and return a Pandoc document.
@@ -452,7 +452,8 @@ table = try $ do
                 transpose $ map (map (snd . fst)) (headers:rows)
   let toRow = Row nullAttr . map B.simpleCell
       toHeaderRow l = [toRow l | not (null l)]
-  return $ B.table (B.simpleCaption $ B.plain caption)
+  return $ compactifyTable
+    $ B.table (B.simpleCaption $ B.plain caption)
     (zip aligns (replicate nbOfCols ColWidthDefault))
     (TableHead nullAttr $ toHeaderRow $ map snd headers)
     [TableBody nullAttr 0 [] $ map (toRow . map snd) rows]
@@ -592,6 +593,76 @@ stringBreakers = " \t\n\r.,\"'?!;:<>«»„“”‚‘’()[]"
 wordBoundaries :: [Char]
 wordBoundaries = markupChars <> stringBreakers
 
+-- | True for the characters in 'wordBoundaries'.  Written as a @case@ so
+-- that GHC compiles it to a jump table; 'wordChunk' applies this to every
+-- single character of the input (at three separate sites), so a linear
+-- scan over the 39-element list here is a significant cost.  Must be kept
+-- in sync with 'markupChars' and 'stringBreakers'.
+isWordBoundary :: Char -> Bool
+isWordBoundary c = case c of
+  '\t'    -> True
+  '\n'    -> True
+  '\r'    -> True
+  ' '     -> True
+  '!'     -> True
+  '"'     -> True
+  '#'     -> True
+  '%'     -> True
+  '&'     -> True
+  '\''    -> True
+  '('     -> True
+  ')'     -> True
+  '*'     -> True
+  '+'     -> True
+  ','     -> True
+  '-'     -> True
+  '.'     -> True
+  ':'     -> True
+  ';'     -> True
+  '<'     -> True
+  '='     -> True
+  '>'     -> True
+  '?'     -> True
+  '@'     -> True
+  '['     -> True
+  '\\'    -> True
+  ']'     -> True
+  '^'     -> True
+  '_'     -> True
+  '|'     -> True
+  '~'     -> True
+  '\171'  -> True
+  '\187'  -> True
+  '\8216' -> True
+  '\8217' -> True
+  '\8218' -> True
+  '\8220' -> True
+  '\8221' -> True
+  '\8222' -> True
+  _       -> False
+
+-- | True for the characters in 'markupChars'.  As with 'isWordBoundary',
+-- written as a @case@ to get a jump table.  Must be kept in sync with
+-- 'markupChars'.
+isMarkupChar :: Char -> Bool
+isMarkupChar c = case c of
+  '#'  -> True
+  '%'  -> True
+  '&'  -> True
+  '*'  -> True
+  '+'  -> True
+  '-'  -> True
+  '='  -> True
+  '@'  -> True
+  '['  -> True
+  '\\' -> True
+  ']'  -> True
+  '^'  -> True
+  '_'  -> True
+  '|'  -> True
+  '~'  -> True
+  _    -> False
+
 -- | Parse a hyphened sequence of words
 hyphenedWords :: PandocMonad m => TextileParser m Text
 hyphenedWords = do
@@ -601,10 +672,10 @@ hyphenedWords = do
 
 wordChunk :: PandocMonad m => TextileParser m Text
 wordChunk = try $ do
-  hd <- noneOf wordBoundaries
-  tl <- many ( noneOf wordBoundaries <|>
-               try (notFollowedBy' note *> oneOf markupChars
-                     <* lookAhead (noneOf wordBoundaries) ) )
+  hd <- satisfy (not . isWordBoundary)
+  tl <- many ( satisfy (not . isWordBoundary) <|>
+               try (notFollowedBy' note *> satisfy isMarkupChar
+                     <* lookAhead (satisfy (not . isWordBoundary)) ) )
   return $ T.pack $ hd:tl
 
 -- | Any string
@@ -679,7 +750,7 @@ image = try $ do
   let attr = case lookup "style" kvs of
                Just stls -> (ident, cls, pickStylesToKVs ["width", "height"] stls)
                Nothing   -> (ident, cls, kvs)
-  src <- T.pack <$> many1 (noneOf " \t\n\r!(")
+  src <- takeWhile1P (`notElem` (" \t\n\r!(" :: [Char]))
   alt <- fmap T.pack $ option "" $ try $ char '(' *> manyTill anyChar (char ')')
   char '!'
   let img = B.imageWith attr src alt (B.str alt)

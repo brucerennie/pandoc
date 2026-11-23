@@ -16,7 +16,7 @@ module Text.Pandoc.Readers.Pod (readPod) where
 
 import Control.Monad (void)
 import Control.Monad.Except (throwError)
-import Data.Char (isAsciiUpper, digitToInt)
+import Data.Char (isAlphaNum, isAsciiUpper, isDigit, isLetter, digitToInt)
 import Data.Default (Default)
 import Text.Pandoc.Logging
 import Text.Pandoc.Options
@@ -30,7 +30,7 @@ import Text.Pandoc.Builder (Blocks, Inlines)
 import qualified Text.Pandoc.Builder as B
 import qualified Data.Text as T
 import qualified Data.Text.Read as TR
-import Text.Pandoc.Shared (stringify, textToIdentifier, tshow)
+import Text.Pandoc.Shared (stringifyInlines, textToIdentifier, tshow)
 import Data.Set (Set)
 import Data.Functor (($>))
 import Data.Maybe (listToMaybe, fromMaybe)
@@ -210,7 +210,7 @@ format = try $ do
   lookAhead (char '<')
   case ctrl of
     'B' -> B.strong <$> argument
-    'C' -> B.code . stringify <$> argument
+    'C' -> B.code . stringifyInlines <$> argument
     'F' -> B.spanWith (mempty, ["filename"], mempty) <$> argument
     'I' -> B.emph <$> argument
     'S' -> argument  -- TODO map nbsps
@@ -218,7 +218,7 @@ format = try $ do
     'Z' -> argument $> mempty
 
     'E' -> do
-      a <- stringify <$> argument
+      a <- stringifyInlines <$> argument
       case entity a of
              -- per spec:
              --   Pod parsers, when faced with some unknown "E<identifier>" code,
@@ -294,9 +294,9 @@ link = do
       let name' = fromMaybe (defaultLinkName dest) name in
           case dest of
             LinkUrl _ href -> B.link href "" name'
-            LinkMan nm Nothing ->  B.linkWith (mempty, mempty, [("manual", stringify nm)]) "" "" name'
-            LinkMan nm (Just sc) -> B.linkWith (mempty, mempty, [("manual", stringify nm), ("section", stringify sc)]) "" "" name'
-            LinkInternal sc -> B.link ("#" <> identifier (stringify sc)) "" name'
+            LinkMan nm Nothing ->  B.linkWith (mempty, mempty, [("manual", stringifyInlines nm)]) "" "" name'
+            LinkMan nm (Just sc) -> B.linkWith (mempty, mempty, [("manual", stringifyInlines nm), ("section", stringifyInlines sc)]) "" "" name'
+            LinkInternal sc -> B.link ("#" <> identifier (stringifyInlines sc)) "" name'
 
     linkName sp ex = optionMaybe $ try $ many
         (try format
@@ -312,12 +312,12 @@ link = do
     -- manual page reference, so what we are doing here is roughly equivalent
     -- even though it is nonsense
     url ex = do
-      scheme <- many1Char (letter <|> digit <|> char '_')
+      scheme <- takeWhile1P (\c -> isLetter c || isDigit c || c == '_')
       colon <- T.singleton <$> char ':' <* notFollowedBy (char ':')
       rst <- many (format <|> B.str <$> many1Char (podCharLess ex))
       return $ LinkUrl
                  (B.str scheme <> B.str colon <> mconcat rst)
-                 (scheme <> colon <> stringify rst)
+                 (scheme <> colon <> stringifyInlines (mconcat rst))
     quotedSection sp close ex = do
       let mystr = B.str <$> many1Char (podCharLess ('\"':ex) <|> try (char '"' <* notFollowedBy close))
       char '"'
@@ -353,7 +353,7 @@ str = B.str <$> many1Char podChar
 
 nonEmptyLine :: PandocMonad m => PodParser m T.Text
 nonEmptyLine = try $ do
-  pre <- manyChar spaceChar
+  pre <- takeWhileP (\c -> c == ' ' || c == '\t')
   something <- T.singleton <$> nonspaceChar
   post <- anyLineNewline
   return $ pre <> something <> post
@@ -368,7 +368,7 @@ verbatim = do
   optional blanklines
   return $ B.codeBlock $ mconcat $ start:lns
   where
-    startVerbatimLine = many1Char spaceChar <> nonEmptyLine
+    startVerbatimLine = takeWhile1P (\c -> c == ' ' || c == '\t') <> nonEmptyLine
 
 -- =begin/=end/=for and data paragraphs
 -- The =begin/=end (and single-paragraph =for variant) markers in Pod are
@@ -390,7 +390,7 @@ verbatim = do
 -- structure. It seems unlikely this would be encountered in the wild.
 
 regionIdentifier :: PandocMonad m => PodParser m T.Text
-regionIdentifier = many1Char (alphaNum <|> oneOf "-_")
+regionIdentifier = takeWhile1P (\c -> isAlphaNum c || c == '-' || c == '_')
 
 for :: PandocMonad m => PodParser m Blocks
 for = do

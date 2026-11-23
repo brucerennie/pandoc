@@ -1,7 +1,7 @@
 ---
 title: Pandoc User's Guide
 author: John MacFarlane
-date: 2026-07-21
+date: 2026-11-10
 ---
 
 # Synopsis
@@ -146,7 +146,7 @@ contains images), [`bookmark`], [`xcolor`],
 [`babel`] (with `lang`).  If `CJKmainfont` is set, [`xeCJK`]
 is needed if `xelatex` is used, else [`luatexja`] is needed if
 `lualatex` is used. [`framed`] is required if code is highlighted in a
-scheme that use a colored background. The use of `xelatex` or
+scheme that uses a colored background. The use of `xelatex` or
 `lualatex` as the PDF engine requires [`fontspec`]. `lualatex`
 uses [`selnolig`] and [`lua-ul`]. `xelatex` uses [`bidi`] (with
 the `dir` variable set).
@@ -251,6 +251,7 @@ header when requesting a document from a URL:
     - `endnotexml` ([EndNote XML bibliography])
     - `epub` ([EPUB])
     - `fb2` ([FictionBook2] e-book)
+    - `fodt` (flat [OpenDocument text document][ODT])
     - `gfm` ([GitHub-Flavored Markdown]),
       or the deprecated and less accurate `markdown_github`;
       use [`markdown_github`](#markdown-variants) only
@@ -327,6 +328,7 @@ header when requesting a document from a URL:
     - `epub` or `epub3` ([EPUB] v3 book)
     - `epub2` (EPUB v2)
     - `fb2` ([FictionBook2] e-book)
+    - `fodt` (flat [OpenDocument text document][ODT])
     - `gfm` ([GitHub-Flavored Markdown]),
       or the deprecated and less accurate `markdown_github`;
       use [`markdown_github`](#markdown-variants) only
@@ -416,6 +418,19 @@ header when requesting a document from a URL:
     is not created by pandoc, so you will need to create it yourself
     if you want to make use of it.)
 
+    If the `PANDOC_DATA_DIRS` environment variable is set to a list
+    of directories (separated by `:`, or `;` on Windows), these
+    directories will be searched, in order, for data files not
+    found in the user data directory, before pandoc falls back to
+    its default data files.  This applies to all data files that
+    are looked up in the user data directory, including templates,
+    filters, defaults files, metadata files, and CSL styles. Only
+    absolute paths in `PANDOC_DATA_DIRS` are used.  This makes it
+    possible for a package manager to install, for example, Lua
+    filters into `/some/prefix/share/pandoc/filters` and make them
+    available by adding `/some/prefix/share/pandoc` to
+    `PANDOC_DATA_DIRS`.
+
 `-d` *FILE*, `--defaults=`*FILE*
 
 :   Specify a set of default option settings.  *FILE* is a YAML or JSON
@@ -431,12 +446,30 @@ header when requesting a document from a URL:
     overridden or extended by subsequent options on the command
     line.
 
+`--completion=`*SHELL*
+
+:   Generate a shell completion script for the given shell, one of
+    `bash`, `zsh`, or `fish`.  To enable completion with pandoc,
+    evaluate the output of this command in your shell's startup
+    file.  For example, for bash, add this to your `.bashrc`:
+
+        eval "$(pandoc --completion=bash)"
+
+    For zsh, you will need to create a directory to store zsh
+    completions (e.g., `~/.local/share/zsh/site-functions`) or use
+    one of the existing directories listed by `zsh --pathdirs`.
+    Create the pandoc completion script in that directory:
+
+        pandoc --completion=zsh > ~/.local/share/zsh/site-functions/_pandoc
+
+    Then add these lines to your `.zshrc`:
+
+        fpath=(~/.local/share/zsh $fpath)
+        autoload -Uz compinit && compinit
+
 `--bash-completion`
 
-:   Generate a bash completion script.  To enable bash completion
-    with pandoc, add this to your `.bashrc`:
-
-        eval "$(pandoc --bash-completion)"
+:   *Deprecated.  Use `--completion=bash` instead.*
 
 `--sandbox[=true|false]`
 
@@ -538,7 +571,7 @@ header when requesting a document from a URL:
 [ODT]: https://en.wikipedia.org/wiki/OpenDocument
 [Plain Old Documentation]: https://perldoc.perl.org/perlpod
 [Textile]: https://textile-lang.com
-[MediaWiki markup]: https://www.mediawiki.org/wiki/Help:Formatting
+[MediaWiki markup]: https://www.mediawiki.org/wiki/Special:MyLanguage/Help:Formatting
 [DokuWiki markup]: https://www.dokuwiki.org/dokuwiki
 [ZimWiki markup]: https://zim-wiki.org/manual/Help/Wiki_Syntax.html
 [XWiki markup]: https://www.xwiki.org/xwiki/bin/view/Documentation/UserGuide/Features/XWikiSyntax/
@@ -749,7 +782,7 @@ header when requesting a document from a URL:
     `all` includes all insertions, deletions, and comments, wrapped
     in spans with `insertion`, `deletion`, `comment-start`, and
     `comment-end` classes, respectively. The author and time of
-    change is included. `all` is useful for scripting: only
+    change are included. `all` is useful for scripting: only
     accepting changes from a certain reviewer, say, or before a
     certain date. If a paragraph is inserted or deleted,
     `track-changes=all` produces a span with the class
@@ -761,7 +794,7 @@ header when requesting a document from a URL:
 
 :   Extract images and other media contained in or linked from
     the source document to the path *DIR*, creating it if
-    necessary, and adjust the images references in the document
+    necessary, and adjust the image references in the document
     so they point to the extracted files.  Media are downloaded,
     read from the file system, or extracted from a binary
     container (e.g. docx), as needed.  The original file paths
@@ -1114,7 +1147,7 @@ header when requesting a document from a URL:
     link to will not be incorporated in the document.
     Limitation: resources that are loaded dynamically through
     JavaScript cannot be incorporated; as a result, fonts may
-    be missing when `--mathjax` is used, and some
+    be missing when `--math-method=mathjax` is used, and some
     advanced features (e.g.  zoom or speaker notes) may not work
     in an offline "self-contained" `reveal.js` slide show.
 
@@ -1128,7 +1161,10 @@ header when requesting a document from a URL:
 `--link-images[=true|false]`
 
 :   Include links to images instead of embedding the images in ODT.
-    (This option currently only affects ODT output.)
+    (This option currently only affects `odt` and `fodt` output.)
+    This is worth considering for `fodt`, where images have to be
+    base64-encoded and so take about a third more space than in the
+    compressed `odt` package.
 
 `--html-q-tags[=true|false]`
 
@@ -1232,7 +1268,7 @@ header when requesting a document from a URL:
 `--listings[=true|false]`
 
 :   *Deprecated, use `--syntax-highlighting=idiomatic` or
-    `--syntax-highlighting=default` instead.
+    `--syntax-highlighting=default` instead.*
 
     Use the [`listings`] package for LaTeX code blocks. The package
     does not support multi-byte encoding for source code. To handle UTF-8
@@ -1390,6 +1426,12 @@ header when requesting a document from a URL:
         Then open `custom-reference.odt` in LibreOffice, modify
         the styles as you wish, and save the file.
 
+        `fodt` output uses the same reference documents as `odt`;
+        the reference is still a zipped `.odt`, which is flattened
+        along with the generated content.  Note that an automatic
+        style of the reference document is dropped, with a warning,
+        if the generated content defines a style of the same name.
+
     PowerPoint
 
     :   Templates included with Microsoft PowerPoint 2013 (either with
@@ -1475,7 +1517,7 @@ header when requesting a document from a URL:
     `<dc:title>` (from the document title), `<dc:creator>` (from the
     document authors), `<dc:date>` (from the document date, which should
     be in [ISO 8601 format]), `<dc:language>` (from the `lang`
-    variable, or, if is not set, the locale), and `<dc:identifier
+    variable, or, if it is not set, the locale), and `<dc:identifier
     id="BookId">` (a randomly generated UUID). Any of these may be
     overridden by elements in the metadata file.
 
@@ -1606,7 +1648,7 @@ header when requesting a document from a URL:
 :   Set the `bibliography` field in the document's metadata to *FILE*,
     overriding any value set in the metadata.  If you supply
     this argument multiple times, each *FILE* will be added to
-    bibliography.  If *FILE* is a URL, it will be fetched
+    the bibliography.  If *FILE* is a URL, it will be fetched
     via HTTP. If *FILE* is not found relative to the
     working directory, it will be sought in the resource path
     (see `--resource-path`).
@@ -1645,60 +1687,85 @@ header when requesting a document from a URL:
     output. It is intended for use in producing a LaTeX file
     that can be processed with [`bibtex`] or [`biber`].
 
-## Math rendering in HTML {.options}
+## Math rendering {.options}
 
-The default is to render TeX math as far as possible using
-Unicode characters.  Formulas are put inside a `span` with
-`class="math"`, so that they may be styled differently from the
-surrounding text if needed. However, this gives acceptable
-results only for basic math, usually you will want to use
-`--mathjax` or another of the following options.
+`--math-method`=*METHOD*[`:`*URL*]
+
+:   Specify the method used to display TeX math. The following
+    methods are possible (some take an optional URL, separated
+    from the method name by a colon). The default value is `mathml`.
+
+    `plain`
+
+      : Render math using Unicode characters, to the extent possible.
+        When this is not possible, fall back to plain TeX.
+
+    `mathjax`[`:`*URL*]
+
+      : Render math using [MathJax]. TeX math will be put between
+        `\(...\)` (for inline math) or `\[...\]` (for display
+        math) and wrapped in `<span>` tags with class `math`.
+        Then the MathJax JavaScript will render it. The *URL*
+        should point to the `MathJax.js` load script. If a *URL*
+        is not provided, a link to the Cloudflare CDN will be
+        inserted. This method works in HTML and HTML-derived formats.
+
+    `mathml`
+
+      : Convert TeX math to [MathML]. MathML is supported
+        natively by the main web browsers and most e-book
+        readers. This option works in HTML and XML formats.
+
+    `webtex`[`:`*URL*]
+
+      : Convert TeX formulas to `<img>` tags that link to an external script
+        that converts formulas to images. The formula will be URL-encoded
+        and concatenated with the URL provided. For SVG images you can for
+        example use
+        `--math-method=webtex:https://latex.codecogs.com/svg.latex?`.
+        If no URL is specified, the CodeCogs URL generating PNGs
+        will be used (`https://latex.codecogs.com/png.latex?`).
+        Note:  this method works not just in HTML but in Markdown,
+        which is useful if you're targeting a version of Markdown
+        without native math support.
+
+    `katex`[`:`*URL*]
+
+      : Use [KaTeX] to display embedded TeX math in HTML output.
+        The *URL* is the base URL for the KaTeX library. That directory
+        should contain a `katex.min.js` and a `katex.min.css` file.
+        If a *URL* is not provided, a link to the KaTeX CDN will be inserted.
+        This method works in HTML and HTML-derived formats.
+
+    `gladtex`
+
+    : Enclose TeX math in `<eq>` tags in HTML output.  The resulting HTML
+      can then be processed by [GladTeX] to produce SVG images of the typeset
+      formulas and an HTML file with these images embedded.
+
+          pandoc -s --math-method=gladtex input.md -o myfile.htex
+          gladtex -d image_dir myfile.htex
+          # produces myfile.html and images in image_dir
 
 `--mathjax`[`=`*URL*]
 
-:   Use [MathJax] to display embedded TeX math in HTML output.
-    TeX math will be put between `\(...\)` (for inline math)
-    or `\[...\]` (for display math) and wrapped in `<span>` tags
-    with class `math`. Then the MathJax JavaScript will render it.
-    The *URL* should point to the `MathJax.js` load script.
-    If a *URL* is not provided, a link to the Cloudflare CDN will
-    be inserted.
+:   *Deprecated.  Use `--math-method=mathjax`[`:`*URL*] instead.*
 
 `--mathml`
 
-:   Convert TeX math to [MathML] (in `epub3`, `docbook4`,
-    `docbook5`, `jats`, `html4` and `html5`).  This is the
-    default in `odt` output. MathML is supported natively by
-    the main web browsers and select e-book readers.
+:   *Deprecated.  Use `--math-method=mathml` instead.*
 
 `--webtex`[`=`*URL*]
 
-:   Convert TeX formulas to `<img>` tags that link to an external script
-    that converts formulas to images. The formula will be URL-encoded
-    and concatenated with the URL provided. For SVG images you can for
-    example use `--webtex https://latex.codecogs.com/svg.latex?`.
-    If no URL is specified, the CodeCogs URL generating PNGs
-    will be used (`https://latex.codecogs.com/png.latex?`).
-    Note:  the `--webtex` option will affect Markdown output
-    as well as HTML, which is useful if you're targeting a
-    version of Markdown without native math support.
+:   *Deprecated.  Use `--math-method=webtex`[`:`*URL*] instead.*
 
 `--katex`[`=`*URL*]
 
-:   Use [KaTeX] to display embedded TeX math in HTML output.
-    The *URL* is the base URL for the KaTeX library. That directory
-    should contain a `katex.min.js` and a `katex.min.css` file.
-    If a *URL* is not provided, a link to the KaTeX CDN will be inserted.
+:   *Deprecated.  Use `--math-method=katex`[`:`*URL*] instead.*
 
 `--gladtex`
 
-:   Enclose TeX math in `<eq>` tags in HTML output.  The resulting HTML
-    can then be processed by [GladTeX] to produce SVG images of the typeset
-    formulas and an HTML file with these images embedded.
-
-        pandoc -s --gladtex input.md -o myfile.htex
-        gladtex -d image_dir myfile.htex
-        # produces myfile.html and images in image_dir
+:   *Deprecated.  Use `--math-method=gladtex` instead.*
 
 [MathML]: https://www.w3.org/Math/
 [MathJax]: https://www.mathjax.org
@@ -2299,36 +2366,24 @@ of `filters` (see [Reader options](#reader-options-1)).
 | command line                     | defaults file                     |
 +:=================================+:==================================+
 | ```                              | ``` yaml                          |
-| --mathjax                        | html-math-method:                 |
+| --math-method=mathjax            | math-method     :                 |
 |                                  |   method: mathjax                 |
 | ```                              | ```                               |
 +----------------------------------+-----------------------------------+
 | ```                              | ``` yaml                          |
-| --mathml                         | html-math-method:                 |
+| --math-method=webtex:URL         | math-method:                      |
+|                                  |   method: webtex                  |
+|                                  |   url: mathjax                    |
+| ```                              | ```                               |
++----------------------------------+-----------------------------------+
+| ```                              | ``` yaml                          |
+| --math-method=mathml             | math-method:                      |
 |                                  |   method: mathml                  |
 | ```                              | ```                               |
 +----------------------------------+-----------------------------------+
-| ```                              | ``` yaml                          |
-| --webtex                         | html-math-method:                 |
-|                                  |   method: webtex                  |
-| ```                              | ```                               |
-+----------------------------------+-----------------------------------+
-| ```                              | ``` yaml                          |
-| --katex                          | html-math-method:                 |
-|                                  |   method: katex                   |
-| ```                              | ```                               |
-+----------------------------------+-----------------------------------+
-| ```                              | ``` yaml                          |
-| --gladtex                        | html-math-method:                 |
-|                                  |   method: gladtex                 |
-| ```                              | ```                               |
-+----------------------------------+-----------------------------------+
 
-In addition to the values listed above, `method` can have the
-value `plain`.
-
-If the command line option accepts a URL argument, an `url:` field can
-be added to `html-math-method:`.
+If the command line option accepts a URL argument, a `url:` field can
+be added to `math-method:`.
 
 ## Options for wrapper scripts
 
@@ -2752,7 +2807,7 @@ Currently the following pipes are predefined:
 
 - `roman`:  Converts textual values that can be
   read as an integer into lowercase roman numerals.
-  This can be used to get lettered enumeration from array indices.
+  This can be used to get roman-numeral enumeration from array indices.
   To get uppercase roman, chain with `uppercase`.
 
 - `left n "leftborder" "rightborder"`:  Renders a textual value
@@ -2906,17 +2961,24 @@ ODT or pptx.
     to e.g. `20px`, but it also accepts `pt`
     (12pt = 16px in most browsers).
 
-`fontcolor`
+`fontcolor`, `fontcolordark`
 :   sets the CSS `color` property on the `html` element.
 
-`linkcolor`
+`linkcolor`, `linkcolordark`
 :   sets the CSS `color` property on all links.
 
-`monofont`
-:   sets the CSS `font-family` property on `code` elements.
+`quotebordercolor`, `quotebordercolordark`
+:   sets the CSS `border-color` property for the left-border of
+    `blockquote` elements.
 
-`monobackgroundcolor`
-:   sets the CSS `background-color` property on `code` elements
+`quotecolor`, `quotecolordark`
+:   sets the CSS `color` property for `blockquote` elements.
+
+`monofont`
+:   sets the CSS `font-family` property on `code` and `pre` elements.
+
+`monobackgroundcolor`, `monobackgroundcolordark`
+:   sets the CSS `background-color` property on `code` and `pre` elements
     and adds extra padding.
 
 `linestretch`
@@ -2926,7 +2988,7 @@ ODT or pptx.
 `maxwidth`
 :   sets the CSS `max-width` property (default is 36em).
 
-`backgroundcolor`
+`backgroundcolor`, `backgroundcolordark`
 :   sets the CSS `background-color` property on the `html` element.
 
 `margin-left`, `margin-right`, `margin-top`, `margin-bottom`
@@ -2954,12 +3016,47 @@ To override or extend some [CSS] for just one document, include for example:
 
 [CSS]: https://developer.mozilla.org/en-US/docs/Learn/CSS
 
+#### Note on `color-scheme`
+
+By default, the browser's chosen `color-scheme` (either `light` or `dark`)
+will affect the color of various unstyled elements like input fields, which are
+generally only applicable if your document is specifically targeting HTML.
+
+By default, Pandoc emits `color-scheme: light dark` to allow the system to
+choose between a default light-mode or dark-mode scheme, but it alters this
+if variables specifically override colors, under the assumption that the user
+wishes for that scheme to always be used.
+
+Currently, this is only per a basic heuristic that checks whether the following
+variables are provided:
+
+* `fontcolor`
+* `fontcolordark`
+* `backgroundcolor`
+* `backgroundcolordark`
+
+And if only one "mode" is provided (light or dark), `color-scheme` is set so
+that this chosen mode is used always, regardless of the system's preference for
+light or dark mode.
+
+Note that there are a few caveats to this, namely that:
+
+* If the browser does not support `light-dark` (older than ~2024), then it will
+  always choose light mode, regardless of this override.
+* When printing, light mode is always chosen, and color variables are ignored.
+* Syntax highlighting is currently unaffected by color scheme.
+
+In general, if you wish to override the theming for a single scheme, you should
+choose to override either the normal `*color` variables (light mode) or the
+`*colordark` variables (dark mode) to ensure that the styles do not conflict
+with other styles added by new versions of Pandoc or the browser itself.
+
 ### Variables for HTML math
 
 `classoption`
-:   when using `--katex`, you can render display math equations
-    flush left using [YAML metadata](#layout) or with `-M
-    classoption=fleqn`.
+  : when using `--math-method=katex`, you can render display
+    math equations flush left using [YAML metadata](#layout) or
+    with `-M classoption=fleqn`.
 
 ### Variables for HTML slides
 
@@ -3408,7 +3505,7 @@ Pandoc uses these variables when [creating a PDF] with ConTeXt.
 
 `pdfaintent`
 :   when used in conjunction with `pdfa`, specifies the output intent for
-    the colors, e.g. `ISO coated v2 300\letterpercent\space (ECI)`
+    the colors, e.g. `ISO coated v2 300\letterpercent\space (ECI)`.
     If left unspecified, `sRGB IEC61966-2.1` is used as default.
 
 `toc`
@@ -3505,7 +3602,9 @@ The `--css` option also affects the output.
 :    Number of columns for body text.
 
 `thanks`
-:   contents of acknowledgments footnote after document title
+:   contents of acknowledgments footnote after document title.
+    (Note: as of typst 0.15, this does not work properly,
+    due to an upstream issue; see jgm/pandoc#11807.)
 
 `mathfont`, `codefont`
 :    Name of system font to use for math and code, respectively.
@@ -3517,10 +3616,20 @@ The `--css` option also affects the output.
 :   color for external links, internal links, and citation links,
     respectively: expects a hexadecimal color code
 
+`csl-entry-spacing`
+:   entry spacing between citeproc-generated bibliography entries
+    (with a unit, e.g. `1em`). This will be set automatically
+    based on the CSL style but can be overridden.
+
+`csl-hanging-indent`
+:   amount of hanging indent in citeproc-generated bibliography entries
+    (with a unit, e.g. `1.5em`). This will be set automatically
+    based on the CSL style but can be overridden.
+
 ### Variables for ms
 
 `fontfamily`
-:   `A` (Avant Garde), `B` (Bookman), `C` (Helvetica), `HN`
+:   `A` (Avant Garde), `B` (Bookman), `H` (Helvetica), `HN`
     (Helvetica Narrow), `P` (Palatino), or `T` (Times New Roman).
     This setting does not affect source code, which is always
     displayed using monospace Courier. These built-in fonts are
@@ -3562,8 +3671,8 @@ on the output format, and include the following:
     The recognized formats for `date` are: `mm/dd/yyyy`,
     `mm/dd/yy`, `yyyy-mm-dd` (ISO 8601), `dd MM yyyy`
     (e.g. either `02 Apr 2018` or `02 April 2018`),
-    `MM dd, yyyy` (e.g. `Apr. 02, 2018` or `April 02, 2018),
-    `yyyy[mm[dd]]` (e.g. `20180402, `201804` or `2018`).
+    `MM dd, yyyy` (e.g. `Apr. 02, 2018` or `April 02, 2018`),
+    `yyyy[mm[dd]]` (e.g. `20180402`, `201804` or `2018`).
 
 `header-includes`
 :   contents specified by `-H/--include-in-header` (may have multiple
@@ -3675,7 +3784,7 @@ en-dash and `---` for em-dash).  If `smart` is disabled,
 then in reading LaTeX pandoc will parse these characters
 literally.  In writing LaTeX, enabling `smart` tells pandoc
 to use the ligatures when possible; if `smart` is disabled
-pandoc will use unicode quotation mark and dash characters.
+pandoc will use Unicode quotation mark and dash characters.
 
 ## Headings and sections
 
@@ -3922,9 +4031,9 @@ Links to headings, figures and tables inside the document are
 substituted with cross-references that will use the number
 of the referenced item. The original link text is discarded.
 This extension can be combined with `xrefs_name` in which case
-the name or caption numbers will appear after the number.
+the name or caption will appear after the number.
 
-For the `xrefs_number` to be useful heading numbers must be enabled
+For the `xrefs_number` extension to be useful, heading numbers must be enabled
 in the generated document, also table and figure captions must be enabled
 using for example the `native_numbering` extension.
 
@@ -3947,8 +4056,20 @@ styles will cause Spans to be created to hold the attributes.
 (Table styles will be added to the Table elements directly.)
 This extension can be used with [docx custom styles](#custom-styles).
 
+When converting from odt or fodt, add `custom-styles`
+attributes for paragraph and character styles, using the
+style names shown in the word processor. Automatic styles,
+which only record direct formatting, are not recorded; instead,
+the named style they are based on is used. A few styles are not
+recorded: the default paragraph style (`Default Paragraph Style`,
+or `Standard`), the default styles of table cells, and styles
+that pandoc interprets itself (such as `Emphasis` and `Strong
+Emphasis`). The paragraphs of list items are not wrapped in Divs.
+A heading gets a `custom-style` attribute if its style is not the
+standard one for its level.
+
 input formats
-:  `docx`
+:  `docx`, `odt`, `fodt`
 
 ### Extension: `amuse` ###
 
@@ -4319,7 +4440,7 @@ Same as `fenced_code_blocks`, but uses backticks (`` ` ``) instead of tildes
 
 ### Extension: `fenced_code_attributes` ###
 
-Optionally, you may attach attributes to fenced or backtick code block using
+Optionally, you may attach attributes to a fenced or backtick code block using
 this syntax:
 
     ~~~~ {#mycode .haskell .numberLines startFrom="100"}
@@ -4706,6 +4827,17 @@ This only works reliably, though, if the repeated item is in a list
 by itself, because each numbered example list will be numbered
 continuously from its starting number.
 
+In a longer (book-length) work, one might need to reset the example
+list counter at the beginning of each chapter. One can do that using the
+following syntax:
+
+    (1@foo) This item will be numbered 1, and subsequent example
+        list items will be numbered 2, 3, etc.
+
+Any number may be used instead of `1`. Note that if there are several
+example list items in a row, the number only has an effect if placed
+on the first of them.
+
 ### Ending a list ###
 
 What if you want to put an indented code block after a list?
@@ -4983,7 +5115,7 @@ contents will wrap, with the relative cell widths determined by
 the number of dashes in the line separating the table header
 from the table body. (For example `---|-` would make the first column 3/4
 and the second column 1/4 of the full text width.)
-On the other hand, if no lines are wider than column width, then
+On the other hand, if no lines are wider than the column width, then
 cell contents will not be wrapped, and the cells will be sized
 to their contents.
 
@@ -5019,6 +5151,13 @@ fit on one page), add the `float` class to the table's attributes
 attribute may be used to pass parameters affecting the float placement:
 
     : The caption of the table. {#ident .float latex-placement="ht"}
+
+To repeat the caption of a `longtable` on each page, add the
+`repeat-caption` class to the table's attributes. Repeated captions are
+not added to the list of tables. This class has no effect on tables with
+the `float` class, since those tables cannot span pages.
+
+    : The caption of the table. {.repeat-caption}
 
 Note that `longtable` does not work with two-column layouts, so if you
 are producing a two-column document using LaTeX, you will need to specify
@@ -5479,7 +5618,7 @@ ODT
   ~ It will be rendered, if possible, using MathML.
 
 DocBook
-  ~ If the `--mathml` flag is used, it will be rendered using MathML
+  ~ If `--math-method=mathml` is used, it will be rendered using MathML
     in an `inlineequation` or `informalequation` tag.  Otherwise it
     will be rendered, if possible, using Unicode characters.
 
@@ -5487,8 +5626,8 @@ Docx and PowerPoint
   ~ It will be rendered using OMML math markup.
 
 FictionBook2
-  ~ If the `--webtex` option is used, formulas are rendered as images
-    using CodeCogs or other compatible web service, downloaded
+  ~ If `--math-method=webtex` is used, formulas are rendered as images
+    using CodeCogs or another compatible web service, downloaded
     and embedded in the e-book. Otherwise, they will appear verbatim.
 
 HTML, Slidy, DZSlides, S5, EPUB
@@ -5515,11 +5654,12 @@ Txt2Tags output, and suppressed in other formats.
 For a more explicit way of including raw HTML in a Markdown
 document, see the [`raw_attribute` extension][Extension: `raw_attribute`].
 
-In the CommonMark format, if `raw_html` is enabled, superscripts,
+In commonmark output, if `raw_html` is enabled, superscripts,
 subscripts, strikeouts and small capitals will be represented as HTML.
-Otherwise, plain-text fallbacks will be used. Note that even if
-`raw_html` is disabled, tables will be rendered with HTML syntax if
-they cannot use pipe syntax.
+Otherwise, plain-text fallbacks will be used.
+
+Disabling the `raw_html` extension has no effect on `commonmark` (or
+`gfm` or `commonmark_x`) *input*.
 
 ### Extension: `markdown_in_html_blocks` ###
 
@@ -5568,7 +5708,7 @@ filters to manipulate groups of blocks.
 
 ### Extension: `native_spans` ###
 
-Use native pandoc `Span` blocks for content inside `<span>` tags.
+Use native pandoc `Span` elements for content inside `<span>` tags.
 For the most part this should give the same output as `raw_html`,
 but it makes it easier to write pandoc filters to manipulate groups
 of inlines.
@@ -5709,7 +5849,7 @@ before or after the link).
 The link consists of link text in square brackets, followed by a label in
 square brackets. (There cannot be space between the two unless the
 `spaced_reference_links` extension is enabled.) If the label is empty
-(`[]`), then it will be implicitly be taken to be the same as the link text;
+(`[]`), then it will implicitly be taken to be the same as the link text;
 thus `[foo][]` is equivalent to `[foo][foo]`. (If the
 `shortcut_reference_links` extension is enabled, the empty `[]`
 may be omitted.)
@@ -5721,7 +5861,7 @@ must not be parseable as a citation (assuming the `citations`
 extension is enabled): citations take precedence over link
 labels.
 
-Here are some examples of reference links and link definitions;
+Here are some examples of reference links and link definitions:
 
     See [the website *I* built][my website].
 
@@ -5870,7 +6010,7 @@ For example:
   itself contains dpi information).
 - The `%` unit is generally relative to some available space.
   For example the above example will render to the following.
-  - HTML: `<img href="file.jpg" style="width: 50%;" />`
+  - HTML: `<img src="file.jpg" style="width: 50%;" />`
   - LaTeX: `\includegraphics[width=0.5\textwidth,height=\textheight]{file.jpg}`
     (If you're using a custom template, you need to configure `graphicx`
     as in the default template.)
@@ -6052,7 +6192,7 @@ locator term is used, "page" is assumed.
 
 In complex cases, you can force something to be treated as
 a locator by enclosing it in curly braces or prevent parsing
-the suffix as locator by prepending curly braces:
+the suffix as a locator by prepending curly braces:
 
     [@smith{ii, A, D-Z}, with a suffix]
     [@smith, {pp. iv, vi-xi, (xv)-(xvii)} with suffix here]
@@ -6143,7 +6283,7 @@ or image itself, if these differ.
 
 ### Extension: `mark` ###
 
-To highlight out a section of text, begin and end it with
+To highlight a section of text, begin and end it
 with `==`. Thus, for example,
 
     This ==is deleted text.==
@@ -6332,7 +6472,7 @@ for regular emphasis, add extra blank space around headings.
 
 ### Extension: `sourcepos` ###
 
-Include source position attributes when parsing `commonmark`.
+Include source position attributes when parsing `commonmark` or `djot`.
 For elements that accept attributes, a `data-pos` attribute
 is added; other elements are placed in a surrounding
 Div or Span element with a `data-pos` attribute.
@@ -6386,7 +6526,7 @@ and which are enabled by default, you can use the command
 where `FORMAT` is replaced with the name of the format.
 
 Note that the list of extensions for `commonmark`,
-`gfm`, and `commonmark_x` are defined relative to default
+`gfm`, and `commonmark_x` is defined relative to default
 commonmark.  So, for example, `backtick_code_blocks`
 does not appear as an extension, since it is enabled by
 default and cannot be disabled.
@@ -6411,8 +6551,8 @@ You can specify an external bibliography using the
 `bibliography` metadata field in a YAML metadata section or the
 `--bibliography` command line argument. If you want to use
 multiple bibliography files, you can supply multiple
-`--bibliography` arguments or set `bibliography` metadata field
-to YAML array.  A bibliography may have any of these formats:
+`--bibliography` arguments or set the `bibliography` metadata field
+to a YAML array.  A bibliography may have any of these formats:
 
   Format            File extension
   ------------      --------------
@@ -6544,7 +6684,7 @@ the following rules:
 
         Spin wave dispersion on the <span class="nocase">nm</span> scale
 
-### Conference Papers, Published vs. Unpublished
+### Conference papers, published vs. unpublished
 
 For a formally published conference paper, use the biblatex entry type
 `inproceedings` (which will be mapped to CSL `paper-conference`).
@@ -6562,7 +6702,6 @@ too, though `eventdate` will not be rendered by most CSL styles.
 Note that `venue` is for the event's venue, unlike `location`
 which describes the publisher's location; do not use the latter
 for an unpublished conference paper.
-
 
 ## Specifying a citation style
 
@@ -6694,8 +6833,8 @@ whether or not they appear in the document, by using a wildcard:
 
 For LaTeX output, you can also use [`natbib`] or [`biblatex`] to
 render the bibliography. In order to do so, specify bibliography
-files as outlined above, and add `--natbib` or `--biblatex`
-argument to pandoc invocation. Bear in mind that bibliography
+files as outlined above, and add the `--natbib` or `--biblatex`
+argument to the pandoc invocation. Bear in mind that bibliography
 files have to be in either BibTeX (for `--natbib`)
 or BibLaTeX (for `--biblatex`) format.
 
@@ -6709,7 +6848,7 @@ A few other metadata fields affect bibliography formatting:
     numerical styles only).  Defaults to false.
 
 `link-bibliography`
-:   If true, DOIs, PMCIDs, PMID, and URLs in bibliographies will
+:   If true, DOIs, PMCIDs, PMIDs, and URLs in bibliographies will
     be rendered as hyperlinks.  (If an entry contains a DOI, PMCID,
     PMID, or URL, but none of these fields are rendered by the style,
     then the title, or in the absence of a title the whole entry, will
@@ -6911,6 +7050,11 @@ These layouts are chosen from the default pptx reference doc included with
 pandoc, unless an alternative reference doc is specified using
 `--reference-doc`.
 
+When reading pptx, each slide becomes a level-2 heading with the
+identifier `slide-N`, followed by the slide's content. Slides hidden
+from the slide show are read too, with the class `hidden` on their
+heading.
+
 ## Incremental lists
 
 By default, these writers produce lists that display "all at once."
@@ -7025,6 +7169,10 @@ in handouts and presenter view.
 
 Notes are not yet supported for other slide formats, but the notes
 will not appear on the slides themselves.
+
+When reading pptx, the speaker notes of each slide are read into a
+`notes` div at the end of the slide's content, so a pptx file
+converted to Markdown and back keeps its notes.
 
 ### Speaker notes on the title slide (PowerPoint)
 
@@ -7584,7 +7732,7 @@ prevent tabs from being turned to spaces.
 
 # Vimdoc
 
-Vimdoc writer generates Vim help files and makes use of the following metadata
+The Vimdoc writer generates Vim help files and makes use of the following metadata
 variables:
 
 ``` yaml
@@ -7597,8 +7745,8 @@ filename: "definition-lists.txt"
 vimdoc-prefix: pandoc
 ```
 
-Complete header requires `abstract`, `author`, `title` and `filename` to
-be set. Compiling file with such metadata produces the following file
+A complete header requires `abstract`, `author`, `title` and `filename` to
+be set. Compiling a file with such metadata produces the following file
 (assumes `--standalone`, see [Templates]):
 
 ``` vimdoc
@@ -7615,7 +7763,7 @@ be set. Compiling file with such metadata produces the following file
 ```
 
 If `vimdoc-prefix` is set, all non-command tags are prefixed with its
-value, it is used to prevent tag collision: all headers have a tag
+value; this is used to prevent tag collision: all headers have a tag
 (either inferred or explicit) and multiple help pages can have the same
 header names, therefore collision is to be expected. Let our input be
 the following markdown file:
@@ -7653,7 +7801,7 @@ Span                                                                *span*
     inherently represent anything.
 ```
 
-Convert it to vimdoc with metadata variable set (e.g. with
+Convert it to vimdoc with the metadata variable set (e.g. with
 `-M vimdoc-prefix=pandoc`)
 
 ``` vimdoc
@@ -7743,11 +7891,11 @@ Currently, `idiomatic` only affects the following formats:
 
 # Custom Styles
 
-Custom styles can be used in the docx, odt and ICML formats.
+Custom styles can be used in the docx, odt, fodt and ICML formats.
 
 ## Output
 
-By default, pandoc's odt, docx and ICML output applies a predefined set of
+By default, pandoc's odt, fodt, docx and ICML output applies a predefined set of
 styles for blocks such as paragraphs and block quotes, and uses largely
 default formatting (italics, bold) for inlines. This will work for most
 purposes, especially alongside a [reference doc](#option--reference-doc) file.
@@ -7813,6 +7961,8 @@ of the input document, using the `custom-style` class. A `custom-style`
 attribute will be added for each style. Divs will be created to
 hold the paragraph styles, and Spans to hold the character styles.
 Table styles will be applied directly to the Table.
+The odt and fodt readers also support the `styles` extension
+(`-f odt+styles`), for paragraph and character styles.
 
 For example, using the `custom-style-reference.docx` file in the test
 directory, we have the following different outputs:
@@ -7967,12 +8117,12 @@ that is optimized for tagging. For example:
     pandoc -t context+tagging doc.md -o doc.pdf
 
 A recent `context` version should be used, as older versions
-contained a bug that lead to invalid PDF metadata.
+contained a bug that led to invalid PDF metadata.
 
 ## WeasyPrint
 
 The HTML-based engine WeasyPrint includes experimental support for
-PDF/A and PDF/UA since version 57. Tagged PDFs can created with
+PDF/A and PDF/UA since version 57. Tagged PDFs can be created with
 
     pandoc --pdf-engine=weasyprint \
            --pdf-engine-opt=--pdf-variant=pdf/ua-1 ...
@@ -8045,7 +8195,7 @@ set at startup. For full documentation, see the [pandoc-lua] man page.
 # A note on security
 
 1. Although pandoc itself will not create or modify any files other
-   than those you explicitly ask it create (with the exception
+   than those you explicitly ask it to create (with the exception
    of temporary files used in producing PDFs), a filter or custom
    writer could in principle do anything on your file system. Please
    audit filters and custom writers very carefully before using them.
@@ -8084,10 +8234,10 @@ set at startup. For full documentation, see the [pandoc-lua] man page.
      For example, in `wkhtmltopdf` the `footer-html` and `header-html`
      metadata fields will be passed directly to `wkhtmltopdf`
      as `--footer-html` and `--header-html` arguments, and by using
-     a `file:` URIs with these, one could exfiltrate local files.
+     a `file:` URI with these, one could exfiltrate local files.
      In addition, using `--pdf-engine=wkhtmltopdf` with `-f html+raw_html`
      enables an SSRF vulnerability in wkhtmltopdf ([CVE-2022-35583]).
-     Note that [`wkhtmltopdf`) is
+     Note that [`wkhtmltopdf`] is
      [deprecated](https://wkhtmltopdf.org/status.html) and
      its authors recommend not to use it with any untrusted input.
      However, there may be similar issues with other pdf-engines.

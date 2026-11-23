@@ -14,14 +14,15 @@ module Text.Pandoc.Writers.Markdown.Inline (
   inlineListToMarkdown,
   linkAttributes,
   attrsToMarkdown,
-  attrsToMarkua
+  attrsToMarkua,
+  linkDestination
   ) where
 import Control.Monad (when, liftM2)
 import Control.Monad.Reader
     ( asks, MonadReader(local) )
 import Control.Monad.State.Strict
     ( MonadState(get), gets, modify )
-import Data.Char (isAlphaNum, isDigit)
+import Data.Char (isAlphaNum, isDigit, isSpace)
 import Data.List (find, intersperse)
 import Data.List.NonEmpty (nonEmpty)
 import qualified Data.Map as M
@@ -86,7 +87,7 @@ escapeText opts = T.pack . go' . T.unpack
   go ('\\':c:cs)
     | isEnabled Ext_raw_tex opts = '\\':'\\':go (c:cs)
     | isAlphaNum c = '\\' : go (c:cs)
-    | otherwise = '\\':'\\': go cs
+    | otherwise = '\\':'\\': go (c:cs)
   go ('!':'[':cs) = '\\':'!':'[': go cs
   go ('=':'=':cs)
     | isEnabled Ext_mark opts = '\\':'=':go ('=':cs)
@@ -338,6 +339,17 @@ avoidBadWraps inListItem = go . toList
   toList (Concat a b) = a : toList b
   toList x = [x]
 
+-- | Render a link destination, enclosing it in angle brackets if
+-- it contains whitespace, which is not allowed in a bare destination.
+linkDestination :: Text -> Text
+linkDestination src
+  | T.any isSpace src = "<" <> T.concatMap escapeChar src <> ">"
+  | otherwise = src
+  where
+    escapeChar c
+      | c `elem` ['<', '>', '\\'] = T.pack ['\\', c]
+      | otherwise = T.singleton c
+
 -- | Convert Pandoc inline element to markdown.
 inlineToMarkdown :: PandocMonad m => WriterOptions -> Inline -> MD m (Doc Text)
 inlineToMarkdown opts (Span ("",["emoji"],kvs) [Str s]) =
@@ -506,11 +518,28 @@ inlineToMarkdown opts (Str str) = do
                         else escapeText opts) $ str
   return $ literal str'
 inlineToMarkdown opts (Math InlineMath str) = do
-  let str' = T.strip str
+  -- This is to handle `$x%\n$`:
+  let endsWithComment t =
+        go (T.unpack $ T.reverse t)
+       where
+         go [] = False
+         go ('\n':_) = False
+         go ('%':'\\':cs) =
+           let (as,bs) = span (=='\\') cs
+           in  if length as `mod` 2 == 0
+                  then go bs -- this is an escaped %
+                  else True -- this is an unescaped % after an escaped \
+         go ('%':_) = True
+         go (_:cs) = go cs
+  let addFinalNewlineIfEndsInComment t =
+        if endsWithComment t
+           then t <> "\n"
+           else t
+  let str' = addFinalNewlineIfEndsInComment $ T.strip str
   variant <- asks envVariant
   case () of
     _ | variant == Markua -> return $ "`" <> literal str <> "`" <> "$"
-      | otherwise -> case writerHTMLMathMethod opts of
+      | otherwise -> case writerMathMethod opts of
           WebTeX url ->
              inlineToMarkdown opts
                   (Image nullAttr [Str str'] (url <> urlEncode str', str'))
@@ -535,7 +564,7 @@ inlineToMarkdown opts (Math DisplayMath str) = do
                                                         ("format", "latex"))
         return $ blankline <> attributes <> cr <> literal "```" <> cr
             <> literal str <> cr <> literal "```" <> blankline
-      | otherwise -> case writerHTMLMathMethod opts of
+      | otherwise -> case writerMathMethod opts of
           WebTeX url ->
             let str' = T.strip str
              in (\x -> blankline <> x <> blankline) `fmap`
@@ -678,13 +707,13 @@ inlineToMarkdown opts lnk@(Link attr@(ident,classes,kvs) txt (src, tit)) = do
         where result = "[" <> linktext <> "](" <> (literal src) <> ")"
               attributes = addKeyValueToAttr attr ("title", tit)
     -- Use wikilinks where possible
-    _ | src == stringify txt && useWikilink ->
-        return $ "[[" <> literal (stringify txt) <> "]]"
+    _ | src == stringifyInlines txt && useWikilink ->
+        return $ "[[" <> literal (stringifyInlines txt) <> "]]"
       | useAuto -> return $ "<" <> literal srcSuffix <> ">"
       | useWikilink && isEnabled Ext_wikilinks_title_after_pipe opts -> return $
-        "[[" <> literal src <> "|" <> literal (stringify txt) <> "]]"
+        "[[" <> literal src <> "|" <> literal (stringifyInlines txt) <> "]]"
       | useWikilink && isEnabled Ext_wikilinks_title_before_pipe opts -> return $
-        "[[" <> literal (stringify txt) <> "|" <> literal src <> "]]"
+        "[[" <> literal (stringifyInlines txt) <> "|" <> literal src <> "]]"
       | useRefLinks ->
            let first  = "[" <> linktext <> "]"
                second = if getKey linktext == getKey reftext
@@ -700,8 +729,8 @@ inlineToMarkdown opts lnk@(Link attr@(ident,classes,kvs) txt (src, tit)) = do
             writeHtml5String opts{ writerTemplate = Nothing }
             (Pandoc nullMeta [Plain [lnk]])
       | otherwise -> return $
-         "[" <> linktext <> "](" <> literal src <> linktitle <> ")" <>
-         linkAttributes opts attr
+         "[" <> linktext <> "](" <> literal (linkDestination src) <> linktitle
+         <> ")" <> linkAttributes opts attr
 inlineToMarkdown opts img@(Image attr alternate (source, tit))
   | isEnabled Ext_raw_html opts &&
     not (isEnabled Ext_link_attributes opts || isEnabled Ext_attributes opts) &&

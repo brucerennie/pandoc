@@ -10,6 +10,7 @@ packages:
 - 'pandoc-server'
 extra-deps:
 - hslua-2.5.0
+- hslua-aeson-2.3.2.1
 - hslua-module-doclayout-1.2.1.1
 - hslua-module-path-1.2.0
 - hslua-module-text-1.2.0
@@ -19,25 +20,32 @@ extra-deps:
 - hslua-objectorientation-2.5.0
 - hslua-packaging-2.4.1
 - hslua-typing-0.2.0
-- asciidoc-0.1.0.3
-- commonmark-0.3
-- commonmark-pandoc-0.3
-- commonmark-extensions-0.2.7.1
-- citeproc-0.13.0.1
-- djot-0.1.4.1
-- skylighting-format-blaze-html-0.1.2.1
+- pandoc-lua-marshal-0.3.3
+- skylighting-0.15.0.1
+- skylighting-core-0.15.0.1
 - typst-symbols-0.3
-- typst-0.11
-- texmath-0.13.2
+- zip-archive-0.5
+- doclayout-0.6
+- asciidoc-0.1.1.1
+- commonmark-pandoc-0.3.0.2
+- yamlet-1.0.0.1
+- yamlet-aeson-1.0.0.1
+- citeproc-0.14.2
+- typst-0.12.1
+- ipynb-0.3
+- commonmark-0.3.2
+- commonmark-extensions-0.2.8
 # needed because not yet in nixpkgs:
 - pandoc-types-1.23.1.2
-# needed because not yet in nixpkgs:
-- emojis-0.1.5
-# needed because not yet in nixpkgs:
-- doclayout-0.5.0.3
+- doctemplates-0.11.1
+- gridtables-0.1.1.1
+- djot-0.1.4.3
+- emojis-0.1.6
+- git: https://github.com/jgm/texmath.git
+  commit: cb644ebe6229df2f92765e9065598c246d7089c6
 ghc-options:
    "$locals": -fhide-source-paths -Wno-missing-home-modules
-resolver: lts-24.51
+resolver: lts-24.66
 nix:
   packages:
   - pkg-config

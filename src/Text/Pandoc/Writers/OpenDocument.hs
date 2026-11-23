@@ -14,11 +14,10 @@
 Conversion of 'Pandoc' documents to OpenDocument XML.
 -}
 module Text.Pandoc.Writers.OpenDocument ( writeOpenDocument ) where
-import Control.Arrow ((***), (>>>))
-import Control.Monad (unless, liftM)
+import Control.Monad (unless, liftM, when)
 import Control.Monad.State.Strict ( StateT(..), modify, gets, lift )
-import Data.Char (chr)
-import Data.Foldable (find)
+import Data.Char (chr, isDigit, isLetter, isMark, ord)
+import Numeric (showHex)
 import Data.List (sortOn, sortBy)
 import qualified Data.List as L
 import qualified Data.Map as Map
@@ -34,8 +33,7 @@ import qualified Text.Pandoc.Builder as B
 import Text.Pandoc.Logging
 import Text.Pandoc.Options
 import Text.DocLayout hiding (link)
-import Text.Pandoc.Shared (linesToPara, tshow, blocksToInlines)
-import Text.Pandoc.Templates (renderTemplate)
+import Text.Pandoc.Shared (linesToPara, plainToPara, tshow, blocksToInlines)
 import qualified Text.Pandoc.Translations as Term (Term(Figure, Table))
 import Text.Pandoc.Walk
 import Text.Pandoc.Writers.Math
@@ -45,11 +43,6 @@ import Text.Pandoc.XML
 import Text.Printf (printf)
 import Text.Pandoc.Highlighting (highlight)
 import Skylighting (FormatOptions(..), SourceLine, Token)
-
--- | Auxiliary function to convert Plain block to Para.
-plainToPara :: Block -> Block
-plainToPara (Plain x) = Para x
-plainToPara x         = x
 
 -- Names of predefined styles in the reference.odt; see data/odt/styles.xml.
 defaultBulletListStyleName, defaultNumberedListStyleName :: Text
@@ -85,57 +78,69 @@ data ReferenceType
   | TableRef
   | FigureRef
 
+data Direction = LTR | RTL
+  deriving (Show, Eq, Ord)
+
 data WriterState =
-    WriterState { stNotes          :: [Doc Text]
+    WriterState { stNoteCount      :: Int
                 , stTableStyles    :: [Doc Text]
+                , stTableStyleCount :: Int
                 , stParaStyles     :: [Doc Text]
+                , stParaStyleCount :: Int
+                , stParaStyleCache :: Map.Map ([(Text,Text)],[(Text,Text)]) Text
+                  -- ^ cache of automatic paragraph styles, keyed on
+                  -- (style attributes, paragraph properties)
                 , stListOverrides  :: Map.Map (ListNumberStyle,ListNumberDelim)
                                         (Text, Doc Text)
                 , stTextStyles     :: Map.Map (Set.Set TextStyle)
-                                        (Text, Doc Text)
+                                        (Int, Doc Text)
+                  -- ^ automatic text styles, with the number that
+                  -- makes up the style's @Tn@ name
                 , stTextStyleAttr  :: Set.Set TextStyle
                 , stIndentPara     :: Int
                 , stInDefinition   :: Bool
-                , stTight          :: Bool
                 , stFirstPara      :: Bool
                 , stImageId        :: Int
                 , stTableCaptionId :: Int
                 , stImageCaptionId :: Int
-                , stIdentTypes     :: [(Text,ReferenceType)]
+                , stIdentTypes     :: Map.Map Text ReferenceType
+                , stDirection      :: Maybe Direction
+                  -- ^ active writing mode
                 }
 
 defaultWriterState :: WriterState
 defaultWriterState =
-    WriterState { stNotes          = []
+    WriterState { stNoteCount      = 0
                 , stTableStyles    = []
+                , stTableStyleCount = 0
                 , stParaStyles     = []
+                , stParaStyleCount = 0
+                , stParaStyleCache = Map.empty
                 , stListOverrides  = Map.empty
                 , stTextStyles     = Map.empty
                 , stTextStyleAttr  = Set.empty
                 , stIndentPara     = 0
                 , stInDefinition   = False
-                , stTight          = False
                 , stFirstPara      = False
                 , stImageId        = 1
                 , stTableCaptionId = 1
                 , stImageCaptionId = 1
-                , stIdentTypes     = []
+                , stIdentTypes     = Map.empty
+                , stDirection      = Nothing
                 }
 
-when :: Bool -> Doc Text -> Doc Text
-when p a = if p then a else empty
-
 addTableStyle :: PandocMonad m => Doc Text -> OD m ()
-addTableStyle i = modify $ \s -> s { stTableStyles = i : stTableStyles s }
-
-addNote :: PandocMonad m => Doc Text -> OD m ()
-addNote i = modify $ \s -> s { stNotes = i : stNotes s }
+addTableStyle i = modify $ \s ->
+  s { stTableStyles = i : stTableStyles s
+    , stTableStyleCount = stTableStyleCount s + 1 }
 
 addParaStyle :: PandocMonad m => Doc Text -> OD m ()
-addParaStyle i = modify $ \s -> s { stParaStyles = i : stParaStyles s }
+addParaStyle i = modify $ \s ->
+  s { stParaStyles = i : stParaStyles s
+    , stParaStyleCount = stParaStyleCount s + 1 }
 
 addTextStyle :: PandocMonad m
-             => Set.Set TextStyle -> (Text, Doc Text) -> OD m ()
+             => Set.Set TextStyle -> (Int, Doc Text) -> OD m ()
 addTextStyle attrs i = modify $ \s ->
   s { stTextStyles = Map.insert attrs i (stTextStyles s) }
 
@@ -154,11 +159,12 @@ setFirstPara =  modify $  \s -> s { stFirstPara = True }
 inParagraphTags :: PandocMonad m => Doc Text -> OD m (Doc Text)
 inParagraphTags d = do
   b <- gets stFirstPara
-  a <- if b
-       then do modify $ \st -> st { stFirstPara = False }
-               return [("text:style-name", "First_20_paragraph")]
-       else    return   [("text:style-name", "Text_20_body")]
-  return $ inTags False "text:p" a d
+  sty <- if b
+         then do modify $ \st -> st { stFirstPara = False }
+                 return "First_20_paragraph"
+         else    return "Text_20_body"
+  sty' <- dirStyleFor sty
+  return $ inTags False "text:p" [("text:style-name", sty')] d
 
 inParagraphTagsWithStyle :: Text -> Doc Text -> Doc Text
 inParagraphTagsWithStyle sty = inTags False "text:p" [("text:style-name", sty)]
@@ -178,6 +184,22 @@ withAlteredTextStyles f action = do
 withTextStyle :: PandocMonad m => TextStyle -> OD m a -> OD m a
 withTextStyle s = withAlteredTextStyles (Set.insert s)
 
+withDirection :: PandocMonad m => Maybe Direction -> OD m a -> OD m a
+withDirection mbdir action = do
+  olddir <- gets stDirection
+  modify $ \st -> st{ stDirection = mbdir }
+  res <- action
+  modify $ \st -> st{ stDirection = olddir }
+  return res
+
+-- | Apply the writing direction from a @dir@ attribute, if present.
+withDirFromAttr :: PandocMonad m => Attr -> OD m a -> OD m a
+withDirFromAttr (_,_,kvs) action =
+  case lookup "dir" kvs of
+    Just "rtl" -> withDirection (Just RTL) action
+    Just "ltr" -> withDirection (Just LTR) action
+    _          -> action
+
 inTextStyle :: PandocMonad m => Doc Text -> OD m (Doc Text)
 inTextStyle d = do
   at <- gets stTextStyleAttr
@@ -189,11 +211,13 @@ inTextStyle d = do
        Nothing -> do
          styles <- gets stTextStyles
          case Map.lookup at styles of
-              Just (styleName, _) -> return $
-                inTags False "text:span" [("text:style-name",styleName)] d
+              Just (num, _) -> return $
+                inTags False "text:span"
+                  [("text:style-name", textStyleName num)] d
               Nothing -> do
-                let styleName = "T" <> tshow (Map.size styles + 1)
-                addTextStyle at (styleName,
+                let num = Map.size styles + 1
+                    styleName = textStyleName num
+                addTextStyle at (num,
                        inTags False "style:style"
                          [("style:name", styleName)
                          ,("style:family", "text")]
@@ -202,6 +226,10 @@ inTextStyle d = do
                                   $ L.foldl' textStyleAttr mempty (Set.toList at)))
                 return $ inTags False
                     "text:span" [("text:style-name",styleName)] d
+
+-- | Name of the @n@th automatic text style.
+textStyleName :: Int -> Text
+textStyleName num = "T" <> tshow num
 
 formulaStyles :: [Doc Text]
 formulaStyles = [formulaStyle InlineMath, formulaStyle DisplayMath]
@@ -232,8 +260,9 @@ selfClosingBookmark ident =
   selfClosingTag "text:bookmark" [("text:name", ident)]
 
 inHeaderTags :: PandocMonad m => Int -> Text -> Doc Text -> OD m (Doc Text)
-inHeaderTags i ident d =
-  return $ inTags False "text:h" [ ("text:style-name", "Heading_20_" <> tshow i)
+inHeaderTags i ident d = do
+  sty <- dirStyleFor ("Heading_20_" <> tshow i)
+  return $ inTags False "text:h" [ ("text:style-name", sty)
                                  , ("text:outline-level", tshow i)]
          $ if T.null ident
               then d
@@ -246,43 +275,68 @@ inQuotes DoubleQuote s = char '\8220' <> s <> char '\8221'
 handleSpaces :: Text -> Doc Text
 handleSpaces s = case T.uncons s of
   Just (' ', _) -> genTag s
-  Just ('\t',x) -> selfClosingTag "text:tab" [] <> rm x
+  Just ('\t',x) -> tabTag <> rm x
   _             -> rm s
   where
-    genTag = T.span (==' ') >>> tag . T.length *** rm >>> uncurry (<>)
-    tag n  = when (n /= 0) $ selfClosingTag "text:s" [("text:c", tshow n)]
-    rm t   = case T.uncons t of
-      Just ( ' ',xs) -> char ' ' <> genTag xs
-      Just ('\t',xs) -> selfClosingTag "text:tab" [] <> genTag xs
-      Just (   x,xs) -> char x <> rm xs
-      Nothing        -> empty
+    tabTag = selfClosingTag "text:tab" []
+    -- collapse a run of spaces into a single <text:s>
+    genTag t = let (spaces, t') = T.span (== ' ') t
+               in  tag (T.length spaces) <> rm t'
+    tag 0  = empty
+    tag n  = selfClosingTag "text:s" [("text:c", tshow n)]
+    -- emit text verbatim up to the next space or tab; a lone space is
+    -- kept literal and any further ones become a <text:s>
+    rm t = let (chunk, t') = T.break (\c -> c == ' ' || c == '\t') t
+               pre = if T.null chunk then empty else literal chunk
+           in  case T.uncons t' of
+                 Just (' ', xs) -> pre <> char ' ' <> genTag xs
+                 Just (_  , xs) -> pre <> tabTag <> genTag xs
+                 Nothing        -> pre
 
 -- | Convert Pandoc document to string in OpenDocument format.
 writeOpenDocument :: PandocMonad m => WriterOptions -> Pandoc -> m Text
 writeOpenDocument opts (Pandoc meta blocks) = do
   setupTranslations meta
-  let colwidth = if writerWrapText opts == WrapAuto
-                    then Just $ writerColumns opts
-                    else Nothing
-  let meta' = case lookupMetaBlocks "abstract" meta of
-                [] -> meta
-                xs -> B.setMeta "abstract"
-                        (B.divWith ("",[],[("custom-style","Abstract")])
-                          (B.fromList xs))
-                        meta
-  ((body, metadata),s) <- flip runStateT
-        defaultWriterState $ do
-           let collectBlockIdent (Header _ (ident,_,_) _)      = [(ident,HeaderRef)]
-               collectBlockIdent (Figure (ident,_,_) _ _ )     = [(ident,FigureRef)]
-               collectBlockIdent (Table (ident,_,_) _ _ _ _ _) = [(ident,TableRef)]
-               collectBlockIdent _                             = []
-           modify $ \s -> s{ stIdentTypes = query collectBlockIdent blocks }
+  -- The abstract is the one template field that takes block-level
+  -- content, so it is rendered separately; everything else in the
+  -- metadata goes in a context where only inlines are allowed.
+  let abstractBlocks = case lookupMetaBlocks "abstract" meta of
+                         [] -> []
+                         xs -> [Div ("",[],[("custom-style","Abstract")]) xs]
+  let meta' = B.deleteMeta "abstract" meta
+  -- Set the default writing direction from the "dir" metadata field;
+  -- in its absence, a right-to-left main language implies RTL.
+  let mbDir = case lookupMetaString "dir" meta of
+                "rtl" -> Just RTL
+                "ltr" -> Nothing
+                _     -> case getLang opts meta of
+                           Just l | Right lang <- parseLang l
+                                  , isRTLLang lang -> Just RTL
+                           _ -> Nothing
+  ((body, abstract, metadata),s) <- flip runStateT
+        defaultWriterState{ stDirection = mbDir } $ do
+           let collectBlockIdent (Header _ attr _)      = identRef HeaderRef attr
+               collectBlockIdent (Figure attr _ _ )     = identRef FigureRef attr
+               collectBlockIdent (Table attr _ _ _ _ _) = identRef TableRef attr
+               collectBlockIdent _                      = []
+               identRef ty (ident,_,_)
+                 | T.null ident = []
+                 | otherwise    = [(ident, ty)]
+           -- only needed to resolve cross references
+           when (isEnabled Ext_xrefs_name opts ||
+                 isEnabled Ext_xrefs_number opts) $
+             modify $ \s -> s{ stIdentTypes =
+                                 Map.fromListWith (\_ old -> old)
+                                   (query collectBlockIdent blocks) }
            m <- metaToContext opts
                   (inlinesToOpenDocument opts . blocksToInlines)
                   (fmap chomp . inlinesToOpenDocument opts)
                   meta'
+           a <- blocksToOpenDocument opts abstractBlocks
            b <- blocksToOpenDocument opts blocks
-           return (b, m)
+           return (b, a, m)
+  -- 'styles' is reversed below, so the text styles are put in
+  -- descending order here to come out as T1, T2, ..., T10
   let styles   = stTableStyles s ++ stParaStyles s ++ formulaStyles ++
                      map snd (sortBy (comparing (Down . fst)) (
                         Map.elems (stTextStyles s)))
@@ -292,23 +346,30 @@ writeOpenDocument opts (Pandoc meta blocks) = do
               . defField "toc" (writerTableOfContents opts)
               . defField "toc-depth" (tshow $ writerTOCDepth opts)
               . defField "automatic-styles" automaticStyles
+              . (if null abstractBlocks
+                    then id
+                    else defField "abstract" abstract)
               $ metadata
-  return $ render colwidth $
-    case writerTemplate opts of
-       Nothing  -> body
-       Just tpl -> renderTemplate tpl context
+  return $ renderWithTemplate opts context body
 
 withParagraphStyle :: PandocMonad m
                    => WriterOptions -> Text -> [Block] -> OD m (Doc Text)
-withParagraphStyle  o s (b:bs)
-    | Para l <- b = go =<< inParagraphTagsWithStyle s <$> inlinesToOpenDocument o l
-    | otherwise   = go =<< blockToOpenDocument o b
-    where go i = (<>) i <$>  withParagraphStyle o s bs
-withParagraphStyle _ _ [] = return empty
+withParagraphStyle o s bs = do
+  s' <- dirStyleFor s
+  -- 'Plain' is treated like 'Para' so that the requested style is not
+  -- lost (e.g. for metadata fields, figure bodies, or tight list items)
+  let go (b:bs')
+        | Para  l <- b = cont bs' =<< styled l
+        | Plain l <- b = cont bs' =<< styled l
+        | otherwise    = cont bs' =<< blockToOpenDocument o b
+      go [] = return empty
+      cont bs' i = (<>) i <$> go bs'
+      styled l = inParagraphTagsWithStyle s' <$> inlinesToOpenDocument o l
+  go bs
 
-inPreformattedTags :: PandocMonad m => [Doc Text] -> OD m (Doc Text)
+inPreformattedTags :: [Doc Text] -> Doc Text
 inPreformattedTags s =
-  return $ inParagraphTagsWithStyle "Preformatted_20_Text" $ hcat s
+  inParagraphTagsWithStyle "Preformatted_20_Text" $ hcat s
 
 -- | Get the list-style name to use for an ordered list with the given
 -- numbering style and delimiter, registering an override automatic style
@@ -372,8 +433,9 @@ orderedItemToOpenDocument :: PandocMonad m
                           -> OD m (Doc Text)
 orderedItemToOpenDocument  o paraName bs = vcat <$> mapM go bs
  where go (OrderedList a l) = orderedList a l
-       go (Para          l) = inParagraphTagsWithStyle paraName <$>
-                                inlinesToOpenDocument o l
+       go (Para          l) = do
+         sty <- dirStyleFor paraName
+         inParagraphTagsWithStyle sty <$> inlinesToOpenDocument o l
        go b                 = blockToOpenDocument o b
        orderedList a@(_,ns,nd) l = do
          lstName <- orderedListStyleName ns nd
@@ -458,22 +520,24 @@ blockToOpenDocument o = \case
     OrderedList  a b -> setFirstPara >> orderedList a b
     CodeBlock attrs s -> do
       setFirstPara
-      case writerHighlightMethod o of
-        Skylighting {} ->
-          case highlight (writerSyntaxMap o) formatOpenDocument attrs s of
+      let highlighted =
+            case highlight (writerSyntaxMap o) formatOpenDocument attrs s of
                 Right h  -> return $ flush . vcat $ map (inTags True "text:p"
                                           [("text:style-name",
                                             "Preformatted_20_Text")] . hcat) h
                 Left msg -> do
                   unless (T.null msg) $ report $ CouldNotHighlight msg
                   unhighlighted s
+      case writerHighlightMethod o of
+        Skylighting {} -> highlighted
+        DefaultHighlighting -> highlighted
         _ -> unhighlighted s
     Table a bc s th tb tf -> setFirstPara >>
                               table o (Ann.toTable a bc s th tb tf)
     HorizontalRule   -> setFirstPara >> return (selfClosingTag "text:p"
                          [ ("text:style-name", "Horizontal_20_Line") ])
     b@(RawBlock f s) -> if f == Format "opendocument"
-                        then return $ text $ T.unpack s
+                        then return $ literal s
                         else empty <$ report (BlockNotRendered b)
     Figure a capt b  -> figure o a capt b
     where
@@ -481,13 +545,13 @@ blockToOpenDocument o = \case
                            r <- vcat  <$> mapM (deflistItemToOpenDocument o) b
                            setInDefinitionList False
                            return r
-      unhighlighted s = flush . vcat <$>
-            (mapM ((inPreformattedTags . (:[])) . preformatted) (T.lines s))
+      unhighlighted s = pure $ flush . vcat $
+            (map ((inPreformattedTags . (:[])) . preformatted) (T.lines s))
       mkDiv    attr s = do
         let (ident,_,kvs) = attr
-            i = withLangFromAttr attr $
+            i = withDirFromAttr attr $ withLangFromAttr attr $
                 case lookup "custom-style" kvs of
-                  Just sty -> withParagraphStyle o sty s
+                  Just sty -> withParagraphStyle o (encodeStyleName sty) s
                   _        -> blocksToOpenDocument o s
             mkBookmarkedDiv = inTags False "text:section" [("text:name", ident)]
         if T.null ident
@@ -506,9 +570,9 @@ blockToOpenDocument o = \case
       table :: PandocMonad m => WriterOptions -> Ann.Table -> OD m (Doc Text)
       table opts
           (Ann.Table (ident, _, _) (Caption _ c) colspecs thead tbodies tfoot) = do
-        tn <- length <$> gets stTableStyles
-        pn <- length <$> gets stParaStyles
-        let  genIds      = map chr [65..]
+        tn <- gets stTableStyleCount
+        pn <- gets stParaStyleCount
+        let  genIds      = map colLetters [0..]
              name        = "Table" <> tshow (tn + 1)
              (aligns, mwidths) = unzip colspecs
              fromWidth (ColWidth w) | w > 0 = w
@@ -516,7 +580,7 @@ blockToOpenDocument o = \case
              widths = map fromWidth mwidths
              textWidth   = sum widths
              columnIds   = zip genIds widths
-             mkColumn  n = selfClosingTag "table:table-column" [("table:style-name", name <> "." <> T.singleton (fst n))]
+             mkColumn  n = selfClosingTag "table:table-column" [("table:style-name", name <> "." <> fst n)]
              columns     = map mkColumn columnIds
              paraHStyles = paraTableStyles "Heading"  pn aligns
              paraStyles  = paraTableStyles "Contents" (pn + length (newPara paraHStyles)) aligns
@@ -545,8 +609,7 @@ blockToOpenDocument o = \case
           [] ->
             withParagraphStyle o "Figure" body
           caption -> do
-            imageDoc <- withParagraphStyle o "FigureWithCaption" $
-                        map (\case {Plain i -> Para i; b -> b}) body
+            imageDoc <- withParagraphStyle o "FigureWithCaption" body
             captionDoc <- inlinesToOpenDocument o caption >>=
                           if isEnabled Ext_native_numbering o
                           then numberedFigureCaption ident
@@ -562,18 +625,20 @@ numberedTableCaption ident caption = do
     id' <- gets stTableCaptionId
     modify (\st -> st{ stTableCaptionId = id' + 1 })
     capterm <- translateTerm Term.Table
-    return $ numberedCaption "TableCaption" capterm "Table" id' ident caption
+    sty <- dirStyleFor "TableCaption"
+    return $ numberedCaption sty capterm "Table" id' ident caption
 
 numberedFigureCaption :: PandocMonad m => Text -> Doc Text -> OD m (Doc Text)
 numberedFigureCaption ident caption = do
     id' <- gets stImageCaptionId
     modify (\st -> st{ stImageCaptionId = id' + 1 })
     capterm <- translateTerm Term.Figure
-    return $ numberedCaption "FigureCaption" capterm  "Illustration" id' ident caption
+    sty <- dirStyleFor "FigureCaption"
+    return $ numberedCaption sty capterm  "Illustration" id' ident caption
 
 numberedCaption :: Text -> Text -> Text -> Int -> Text -> Doc Text -> Doc Text
 numberedCaption style term name num ident caption =
-    let t = text $ T.unpack term
+    let t = literal term
         r = num - 1
         ident' = case ident of
           "" -> "ref" <> name <> tshow r
@@ -585,8 +650,10 @@ numberedCaption style term name num ident caption =
         c = text ": "
     in inParagraphTagsWithStyle style $ hcat [ t, text " ", s, c, caption ]
 
-unNumberedCaption :: Monad m => Text -> Doc Text -> OD m (Doc Text)
-unNumberedCaption style caption = return $ inParagraphTagsWithStyle style caption
+unNumberedCaption :: PandocMonad m => Text -> Doc Text -> OD m (Doc Text)
+unNumberedCaption style caption = do
+  sty <- dirStyleFor style
+  return $ inParagraphTagsWithStyle sty caption
 
 colHeadsToOpenDocument :: PandocMonad m
                        => WriterOptions -> [Text] -> Ann.TableHead
@@ -713,19 +780,22 @@ inlineToOpenDocument o ils
     Subscript   l -> withTextStyle Sub    $ inlinesToOpenDocument o l
     SmallCaps   l -> withTextStyle SmallC $ inlinesToOpenDocument o l
     Quoted    t l -> inQuotes t <$> inlinesToOpenDocument o l
-    Code      attrs s -> case writerHighlightMethod o of
-      Skylighting {} ->
-        case highlight (writerSyntaxMap o) formatOpenDocument attrs s of
+    Code      attrs s ->
+      let highlighted =
+            case highlight (writerSyntaxMap o) formatOpenDocument attrs s of
                 Right h  -> inlinedCode $ mconcat $ mconcat h
                 Left msg -> do
                   unless (T.null msg) $ report $ CouldNotHighlight msg
                   unhighlighted s
-      _ -> unhighlighted s
+      in case writerHighlightMethod o of
+           Skylighting {} -> highlighted
+           DefaultHighlighting -> highlighted
+           _ -> unhighlighted s
     Math      t s -> lift (texMathToInlines t s) >>=
                          inlinesToOpenDocument o
     Cite      _ l -> inlinesToOpenDocument o l
     RawInline f s -> if f == Format "opendocument"
-                       then return $ text $ T.unpack s
+                       then return $ literal s
                        else do
                          report $ InlineNotRendered ils
                          return empty
@@ -763,7 +833,7 @@ inlineToOpenDocument o ils
         let (ident,_,kvs) = attr
             i = maybe id (\sty ->
                            fmap (inTags False "text:span"
-                                  [ ("text:style-name", sty) ]))
+                                  [ ("text:style-name", encodeStyleName sty) ]))
                   (lookup "custom-style" kvs) .
                  withLangFromAttr attr $ inlinesToOpenDocument o xs
             mkBookmarkedSpan b =
@@ -774,16 +844,17 @@ inlineToOpenDocument o ils
           then i
           else fmap mkBookmarkedSpan i
       mkNote     l = do
-        n <- length <$> gets stNotes
+        n <- gets stNoteCount
+        -- bump the counter before rendering the body, so that a note
+        -- nested inside this one does not reuse the same text:id
+        modify $ \st -> st{ stNoteCount = n + 1 }
         let footNote t = inTags False "text:note"
                          [ ("text:id"        , "ftn" <> tshow n)
                          , ("text:note-class", "footnote"     )] $
                          inTagsSimple "text:note-citation" (text . show $ n + 1) <>
                          inTagsSimple "text:note-body" t
-        nn <- footNote <$> withAlteredTextStyles (const mempty)
-                            (withParagraphStyle o "Footnote" l)
-        addNote nn
-        return nn
+        footNote <$> withAlteredTextStyles (const mempty)
+                       (withParagraphStyle o "Footnote" l)
 
 formatOpenDocument :: FormatOptions -> [SourceLine] -> [[Doc Text]]
 formatOpenDocument _fmtOpts = map (map toHlTok)
@@ -794,12 +865,10 @@ toHlTok (toktype,tok) =
 preformatted :: Text -> Doc Text
 preformatted s = handleSpaces $ escapeStringForXML s
 
-mkLink :: WriterOptions -> [(Text,ReferenceType)] -> Text -> Text -> Doc Text -> Doc Text
+mkLink :: WriterOptions -> Map.Map Text ReferenceType -> Text -> Text
+       -> Doc Text -> Doc Text
 mkLink o identTypes s t d =
-  let maybeIdentAndType = case T.uncons s of
-                            Just ('#', ident) -> find ((ident ==) . fst) identTypes
-                            _                 -> Nothing
-      d' = inSpanTags "Definition" d
+  let d' = inSpanTags "Definition" d
       ref refType format ident       = inTags False refType
                                        [ ("text:reference-format", format ),
                                          ("text:ref-name", ident) ]
@@ -824,16 +893,27 @@ mkLink o identTypes s t d =
                                           , ("xlink:href" , s       )
                                           , ("office:name", t       )
                                           ] d'
-      linkOrReference = case maybeIdentAndType of
-                          Just (ident, HeaderRef) -> bookmarkRef' ident
-                          Just (ident, TableRef)  -> sequenceRef' ident
-                          Just (ident, FigureRef) -> sequenceRef' ident
-                          _                       -> link
+      linkOrReference = case T.uncons s of
+                          Just ('#', ident) ->
+                            case Map.lookup ident identTypes of
+                              Just HeaderRef -> bookmarkRef' ident
+                              Just TableRef  -> sequenceRef' ident
+                              Just FigureRef -> sequenceRef' ident
+                              Nothing        -> link
+                          _ -> link
       in if isEnabled Ext_xrefs_name o || isEnabled Ext_xrefs_number o
             then linkOrReference
             else link
 
-tableStyle :: Int -> Double -> [(Char,Double)] -> Doc Text
+-- | Spreadsheet-style column names (@A@, @B@, ..., @Z@, @AA@, @AB@, ...).
+-- Plain @chr@ arithmetic would run past @Z@ into characters like @[@
+-- and @\\@, which are not legal in a @style:name@.
+colLetters :: Int -> Text
+colLetters n
+  | n < 26    = T.singleton (chr (65 + n))
+  | otherwise = colLetters (n `div` 26 - 1) <> T.singleton (chr (65 + n `mod` 26))
+
+tableStyle :: Int -> Double -> [(Text,Double)] -> Doc Text
 tableStyle num textWidth wcs =
     let tableId        = "Table" <> tshow (num + 1)
         tableWidthAttr :: [(Text,Text)]
@@ -847,10 +927,10 @@ tableStyle num textWidth wcs =
                          selfClosingTag "style:table-properties"
                          (("table:align", "center") : tableWidthAttr)
         colStyle (c,0) = selfClosingTag "style:style"
-                         [ ("style:name"  , tableId <> "." <> T.singleton c)
+                         [ ("style:name"  , tableId <> "." <> c)
                          , ("style:family", "table-column"       )]
         colStyle (c,w) = inTags True "style:style"
-                         [ ("style:name"  , tableId <> "." <> T.singleton c)
+                         [ ("style:name"  , tableId <> "." <> c)
                          , ("style:family", "table-column"       )] $
                          selfClosingTag "style:table-column-properties"
                          [("style:rel-column-width", T.pack $ printf "%d*" (floor $ w * 65535 :: Integer))]
@@ -879,44 +959,90 @@ paraStyle :: PandocMonad m => [(Text,Text)] -> OD m Text
 paraStyle attrs = do
   i  <- (*) (0.5 :: Double) . fromIntegral <$> gets stIndentPara
   b  <- gets stInDefinition
-  t  <- gets stTight
+  dirAttrs <- getDirAttrs
   let indentVal = flip (<>) "in" . tshow $ if b then max 0.5 i else i
-      tight     = if t then [ ("fo:margin-top"          , "0in"    )
-                            , ("fo:margin-bottom"       , "0in"    )]
-                       else []
       indent    = if i /= 0 || b
                       then [ ("fo:margin-left"         , indentVal)
                            , ("fo:margin-right"        , "0in"    )
                            , ("fo:text-indent"         , "0in"    )
                            , ("style:auto-text-indent" , "false"  )]
                       else []
-      attributes = indent <> tight
+      attributes = indent <> dirAttrs
   case (attributes, attrs) of
     ([], [("style:parent-style-name", parent)]) -> return parent
-    _ -> do
-      pn <- (+) 1 . length <$> gets stParaStyles
-      let name      = "P" <> tshow pn
-          styleAttr = [ ("style:name"  , name)
-                      , ("style:family", "paragraph") ]
-          paraProps = if null attributes
-                         then mempty
-                         else selfClosingTag
-                                 "style:paragraph-properties" attributes
-      addParaStyle $ inTags True "style:style" (styleAttr <> attrs) paraProps
-      return name
+    _ -> mkParaStyle attrs attributes
 
 paraStyleFromParent :: PandocMonad m => Text -> [(Text,Text)] -> OD m Text
-paraStyleFromParent parent attrs
-  | null attrs = return parent
-  | otherwise  = do
-      pn <- (+) 1 . length <$> gets stParaStyles
-      let name      = "P" <> tshow pn
-          styleAttr = [ ("style:name"             , name)
-                      , ("style:family"           , "paragraph")
-                      , ("style:parent-style-name", parent)]
-          paraProps = selfClosingTag "style:paragraph-properties" attrs
+paraStyleFromParent parent attrs = do
+  dirAttrs <- getDirAttrs
+  let attrs' = attrs <> dirAttrs
+  if null attrs'
+     then return parent
+     else mkParaStyle [("style:parent-style-name", parent)] attrs'
+
+-- | Create an automatic paragraph style with the given @style:style@
+-- attributes and @style:paragraph-properties@, reusing an identical
+-- style if one has already been created.
+mkParaStyle :: PandocMonad m => [(Text,Text)] -> [(Text,Text)] -> OD m Text
+mkParaStyle attrs props = do
+  cache <- gets stParaStyleCache
+  case Map.lookup (attrs, props) cache of
+    Just name -> return name
+    Nothing -> do
+      name <- ("P" <>) . tshow . (+ 1) <$> gets stParaStyleCount
+      let styleAttr = ("style:name"  , name)
+                    : ("style:family", "paragraph")
+                    : attrs
+          paraProps = if null props
+                         then mempty
+                         else selfClosingTag
+                                 "style:paragraph-properties" props
       addParaStyle $ inTags True "style:style" styleAttr paraProps
+      modify $ \st -> st{ stParaStyleCache =
+                            Map.insert (attrs, props) name
+                                       (stParaStyleCache st) }
       return name
+
+getDirAttrs :: PandocMonad m => OD m [(Text, Text)]
+getDirAttrs = do
+  wm <- gets stDirection
+  pure $
+    case wm of
+      Nothing -> []
+      Just RTL -> [("style:writing-mode", "rl-tb"),
+                        ("fo:text-align", "right")]
+      Just LTR -> [("style:writing-mode", "lr-tb"),
+                        ("fo:text-align", "left")]
+
+-- | Encode a style name as LibreOffice does: characters not allowed
+-- in an XML name are replaced by their code point in hex between
+-- underscores, so that, e.g., @Text body@ becomes @Text_20_body@.
+encodeStyleName :: Text -> Text
+encodeStyleName t = case T.uncons t of
+  Nothing      -> t
+  Just (c, cs) -> enc isStartChar c <> T.concatMap (enc isNameChar) cs
+  where
+    enc ok c
+      | ok c      = T.singleton c
+      | otherwise = "_" <> T.pack (showHex (ord c) "") <> "_"
+    isStartChar c = isLetter c || c == '_'
+    isNameChar c  = isStartChar c || isDigit c || isMark c
+                    || c == '-' || c == '.'
+
+-- | Adjust a named paragraph style for the current writing direction.
+-- When a direction is active, an automatic style derived from the
+-- given style with the appropriate @style:writing-mode@ is created.
+-- With no direction active the name passes through unchanged, as do
+-- automatic style names (@P1@, @P2@, ...), since automatic styles are
+-- always created with the current direction included.
+dirStyleFor :: PandocMonad m => Text -> OD m Text
+dirStyleFor parent
+  | isAutoStyleName parent = return parent
+  | otherwise              = paraStyleFromParent parent []
+  where
+    isAutoStyleName t = case T.uncons t of
+      Just ('P', ds) -> not (T.null ds) && T.all isDigit ds
+      _              -> False
 
 paraTableStyles :: Text -> Int -> [Alignment] -> [(Text, Doc Text)]
 paraTableStyles _ _ [] = []
@@ -964,9 +1090,21 @@ textStyleAttr m = \case
   Pre    -> Map.insert "style:font-name" "Courier New" .
             Map.insert "style:font-name-asian" "Courier New" .
             Map.insert "style:font-name-complex" "Courier New" $ m
-  Language lang ->
-            Map.insert "fo:language" (langLanguage lang) .
-            maybe id (Map.insert "fo:country") (langRegion lang) $ m
+  Language lang -> addLanguage lang m
+
+addLanguage :: Lang -> Map.Map Text Text -> Map.Map Text Text
+addLanguage lang
+  | isRTLLang lang =
+     Map.insert "style:language-complex" (langLanguage lang) .
+     maybe id (Map.insert "style:country-complex") (langRegion lang)
+  | otherwise =
+     Map.insert "fo:language" (langLanguage lang) .
+     maybe id (Map.insert "fo:country") (langRegion lang)
+
+-- | Returns True if the language is conventionally written right-to-left.
+isRTLLang :: Lang -> Bool
+isRTLLang Lang{ langLanguage = l } =
+  l `elem` ["ar", "he", "fa", "ur", "sd", "ckb", "yi", "dv"]
 
 withLangFromAttr :: PandocMonad m => Attr -> OD m a -> OD m a
 withLangFromAttr (_,_,kvs) action =

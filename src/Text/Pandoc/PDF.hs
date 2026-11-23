@@ -45,11 +45,11 @@ import Text.Pandoc.Definition
 import Text.Pandoc.Error (PandocError (PandocPDFProgramNotFoundError))
 import Text.Pandoc.SelfContained (makeSelfContained)
 import Text.Pandoc.MIME (getMimeType)
-import Text.Pandoc.Options (HTMLMathMethod (..), WriterOptions (..))
+import Text.Pandoc.Options (MathMethod (..), WriterOptions (..))
 import Text.Pandoc.Extensions (disableExtension, Extension(Ext_smart))
 import Text.Pandoc.Process (pipeProcess)
 import System.Process (readProcessWithExitCode)
-import Text.Pandoc.Shared (inDirectory, stringify, tshow)
+import Text.Pandoc.Shared (inDirectory, stringify, stringifyInlines, tshow)
 import qualified Text.Pandoc.UTF8 as UTF8
 import Text.Pandoc.Walk (walkM)
 import Text.Pandoc.Writers.Shared (getField, metaToContext)
@@ -112,7 +112,7 @@ makePDF program pdfargs writer opts doc = withTempDir (program == "typst") "medi
               >>= writer opts'
 
   verbosity <- getVerbosity
-  let compileHTML mkOutArgs = do
+  let compileHTML defaultOpts mkOutArgs = do
         -- check to see if there is anything in mediabag, and if so,
         -- make the HTML self contained
         mediabag <- getMediaBag
@@ -120,12 +120,12 @@ makePDF program pdfargs writer opts doc = withTempDir (program == "typst") "medi
                       [] -> pure source
                       _ -> makeSelfContained source
         liftIO $
-          toPdfViaTempFile verbosity program pdfargs mkOutArgs ".html" source'
+          toPdfViaTempFile verbosity program (defaultOpts ++ pdfargs) mkOutArgs ".html" source'
   case takeBaseName program of
     "wkhtmltopdf" -> makeWithWkhtmltopdf program pdfargs writer opts' doc
-    "pagedjs-cli" -> compileHTML (\f -> ["-o", f])
-    "prince"      -> compileHTML (\f -> ["-o", f])
-    "weasyprint"  -> compileHTML (:[])
+    "pagedjs-cli" -> compileHTML [] (\f -> ["-o", f])
+    "prince"      -> compileHTML [] (\f -> ["-o", f])
+    "weasyprint"  -> compileHTML ["--presentational-hints"] (\f -> [f])
     "typst" -> liftIO $
         toPdfViaTempFile verbosity program ("compile":pdfargs) (:[]) ".typ" source
     "pdfroff" -> do
@@ -189,14 +189,14 @@ makeWithWkhtmltopdf :: (PandocMonad m, MonadIO m)
                     -> Pandoc              -- ^ document
                     -> m (Either ByteString ByteString)
 makeWithWkhtmltopdf program pdfargs writer opts doc@(Pandoc meta _) = do
-  let mathArgs = case writerHTMLMathMethod opts of
+  let mathArgs = case writerMathMethod opts of
                  -- with MathJax, wait til all math is rendered:
                       MathJax _ -> ["--run-script", "MathJax.Hub.Register.StartupHook('End Typeset', function() { window.status = 'mathjax_loaded' });",
                                     "--window-status", "mathjax_loaded"]
                       _ -> []
   meta' <- metaToContext opts
              (return . literal . stringify)
-             (return . literal . stringify)
+             (return . literal . stringifyInlines)
              meta
   let toArgs (f, mbd) = maybe [] (\d -> ["--" <> f, T.unpack d]) mbd
   let args   = mathArgs ++ concatMap toArgs
@@ -456,7 +456,8 @@ runTeXProgram program args tmpDir outDir = do
      let rerunWarnings = checkForRerun logContents
      tocFileExists <- fileExists (replaceExtension outfile ".toc")
        -- if we have a TOC we always need 3 runs, see #10308
-     let rerunWarnings' = rerunWarnings ++ ["TOC is present" | tocFileExists]
+     let rerunWarnings' = rerunWarnings ++
+           ["TOC is present" | tocFileExists, runNumber < 3]
      if not (null rerunWarnings') && runNumber < maxruns
         then do
           report $ MakePDFInfo "Rerun needed"

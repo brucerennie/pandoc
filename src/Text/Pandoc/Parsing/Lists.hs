@@ -24,9 +24,11 @@ where
 import Data.Char
   ( isAsciiUpper
   , isAsciiLower
+  , isDigit
   , ord
   , toLower
   )
+import Control.Monad (mzero)
 import Data.Maybe (fromMaybe)
 import Text.Pandoc.Definition
   ( ListNumberDelim(..)
@@ -112,12 +114,16 @@ decimal = do
 exampleNum :: (Stream s m Char, UpdateSourcePos s Char)
            => ParsecT s ParserState m (ListNumberStyle, Int)
 exampleNum = do
+  mbNum <- safeRead . T.pack <$> many digit
   char '@'
   lab <- T.pack . concat <$>
                     many (many1 alphaNum <|>
                           try (do c <- char '_' <|> char '-'
                                   cs <- many1 alphaNum
                                   return (c:cs)))
+  case mbNum of
+      Nothing -> pure ()
+      Just n -> updateState $ \s -> s{ stateNextExample = n }
   st <- getState
   case M.lookup lab (stateExamples st) of
     Nothing -> do -- new label
@@ -156,10 +162,29 @@ romanOne = (char 'i' >> return (LowerRoman, 1)) <|>
 
 -- | Parses an ordered list marker and returns list attributes.
 anyOrderedListMarker :: (Stream s m Char, UpdateSourcePos s Char) => ParsecT s ParserState m ListAttributes
-anyOrderedListMarker = choice
-  [delimParser numParser | delimParser <- [inPeriod, inOneParen, inTwoParens],
-                           numParser <- [decimal, exampleNum, defaultNum, romanOne,
-                           lowerAlpha, lowerRoman, upperAlpha, upperRoman]]
+anyOrderedListMarker = try $ do
+  openParen <- option False $ True <$ char '('
+  c <- lookAhead anyChar
+  let withDelim f = try $ do
+        (style, start) <- f
+        delim <-
+          ((if style == DefaultStyle
+               then DefaultDelim
+               else Period) <$ char '.')
+           <|>
+          ((if openParen
+               then TwoParens
+               else OneParen) <$ char ')')
+        return (start, style, delim)
+  case c of
+     '@' -> withDelim exampleNum
+     '#' -> withDelim defaultNum
+     _ | isDigit c -> withDelim exampleNum <|> withDelim decimal
+       | isAsciiLower c ->
+           withDelim romanOne <|> withDelim lowerAlpha <|> withDelim lowerRoman
+       | isAsciiUpper c ->
+           withDelim romanOne <|> withDelim upperAlpha <|> withDelim upperRoman
+     _ -> mzero
 
 -- | Parses a list number (num) followed by a period, returns list attributes.
 inPeriod :: (Stream s m Char, UpdateSourcePos s Char)

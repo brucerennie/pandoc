@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP                 #-}
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedStrings   #-}
@@ -32,7 +31,8 @@ import Data.Char (toLower)
 import Data.List (find)
 import Data.Maybe (catMaybes, fromMaybe)
 import Skylighting (defaultSyntaxMap)
-import Skylighting.Parser (addSyntaxDefinition, parseSyntaxDefinition)
+import Skylighting.Parser (addSyntaxDefinition, parseSyntaxDefinition,
+                           resolveKeywords)
 import System.Directory (getCurrentDirectory)
 import System.Exit (exitSuccess)
 import System.FilePath
@@ -161,10 +161,13 @@ optToOutputSettings scriptingEngine opts = do
         res <- liftIO (parseSyntaxDefinition f)
         case res of
               Left errstr -> throwError $ PandocSyntaxMapError $ T.pack errstr
-              Right syn   -> return $ addSyntaxDefinition syn existingmap
+              Right syn   -> return $
+                addSyntaxDefinition syn existingmap
 
-  syntaxMap <- foldM addSyntaxMap defaultSyntaxMap
-                     (optSyntaxDefinitions opts)
+  syntaxMap <- case optSyntaxDefinitions opts of
+                  [] -> return defaultSyntaxMap
+                  sdefs -> (\m -> M.map (resolveKeywords m) m) <$>
+                            foldM addSyntaxMap defaultSyntaxMap sdefs
 
   hlStyle <- case optSyntaxHighlighting opts of
     NoHighlightingString        -> pure NoHighlighting
@@ -237,7 +240,7 @@ optToOutputSettings scriptingEngine opts = do
         , writerTableOfContents  = optTableOfContents opts
         , writerListOfFigures    = optListOfFigures opts
         , writerListOfTables     = optListOfTables opts
-        , writerHTMLMathMethod   = optHTMLMathMethod opts
+        , writerMathMethod       = optMathMethod opts
         , writerIncremental      = optIncremental opts
         , writerCiteMethod       = optCiteMethod opts
         , writerNumberSections   = optNumberSections opts

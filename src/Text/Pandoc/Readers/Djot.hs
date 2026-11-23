@@ -25,7 +25,8 @@ import Text.Pandoc.Sources
 import Text.Parsec.Pos (newPos)
 import Text.Pandoc.Options
 import Text.Pandoc.Definition
-import Text.Pandoc.Shared (addPandocAttributes, tshow)
+import Text.Pandoc.Shared (addPandocAttributes, tshow, compactifyTable,
+                           paraToPlain)
 import qualified Text.Pandoc.UTF8 as UTF8
 import Djot (ParseOptions(..), SourcePosOption(..), parseDoc, Pos(..))
 import qualified Djot.AST as D
@@ -72,8 +73,11 @@ convertBlock (D.Node pos attr bl) =  addAttrToBlock pos attr <$>
     D.Section bls -> divWith ("",["section"],[]) <$> convertBlocks bls
     D.Heading lev ils -> header lev <$> convertInlines ils
     D.BlockQuote bls -> blockQuote <$> convertBlocks bls
-    D.CodeBlock lang bs -> pure $
-      codeBlockWith ("", [UTF8.toText lang], []) $ UTF8.toText bs
+    D.CodeBlock lang bs ->
+      let classes = case UTF8.toText lang of
+                      "" -> []
+                      l -> [l]
+      in pure $ codeBlockWith ("", classes, []) $ UTF8.toText bs
     D.Div bls -> divWith nullAttr <$> convertBlocks bls
     D.OrderedList olattr listSpacing items ->
       orderedListWith olattr' .
@@ -151,7 +155,8 @@ convertBlock (D.Node pos attr bl) =  addAttrToBlock pos attr <$>
               mapM toRow hs <*> mapM toRow rs
       tbodies <- mapM toTableBody bodies
       let tfoot = TableFoot mempty []
-      pure $ singleton $ Table mempty capt colspecs thead tbodies tfoot
+      pure $ singleton $ compactifyTable
+           $ Table mempty capt colspecs thead tbodies tfoot
     D.RawBlock (D.Format fmt) bs -> pure $
       rawBlock (UTF8.toText fmt) (UTF8.toText bs)
 
@@ -255,9 +260,6 @@ internalAttribute _ = False
 
 toTight :: Blocks -> Blocks
 toTight (Many bls) = Many $ paraToPlain <$> bls
- where
-   paraToPlain (Para ils) = Plain ils
-   paraToPlain x = x
 
 toTaskListItem :: PandocMonad m
                => (D.TaskStatus, D.Blocks) -> ReaderT Env m Blocks

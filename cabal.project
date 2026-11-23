@@ -2,13 +2,32 @@ packages: .
           pandoc-lua-engine
           pandoc-server
           pandoc-cli
-constraints: skylighting-format-blaze-html >= 0.1.2.1,
+constraints: skylighting-format-blaze-html >= 0.1.2.2,
              skylighting-format-context >= 0.1.0.2,
              auto-update >= 0.2.6,
-             crypton >= 1.1.1
+             crypton >= 2.2
 
+source-repository-package
+  type: git
+  location: https://github.com/jgm/texmath.git
+  tag: cb644ebe6229df2f92765e9065598c246d7089c6
+
+-- GHC 9.14 ships base 4.22 and containers 0.8, which are newer than
+-- the upper bounds of these packages allow.
+if impl(ghc >= 9.14)
+  allow-newer: serialise:base,
+               serialise:containers,
+               cborg:base
+
+-- Otherwise the solver prefers disabling the http flag to using
+-- allow-newer.  (Can still be overridden with -f-http.)
 package pandoc
-  flags: +embed_data_files +http
+  flags: +http
+
+-- Use the bundled C zlib, so the build doesn't require any
+-- C libraries to be installed.
+package zlib
+  flags: +bundled-c-zlib
 
 if arch(wasm32)
   tests: False
@@ -38,11 +57,15 @@ if arch(wasm32)
                  -optc-DLUA_STUB_SYSTEM
 
   package pandoc
-    flags: +embed_data_files -http
+    flags: -http
 
   package pandoc-cli
     flags: +lua -repl -server
-    ld-options: -lwasi-emulated-process-clocks -lwasi-emulated-signal -lsetjmp
+    -- ghc-options rather than ld-options: cabal only passes ld-options
+    -- along when it finds an `ld` program on the PATH.
+    ghc-options: -optl-lwasi-emulated-process-clocks
+                 -optl-lwasi-emulated-signal
+                 -optl-lsetjmp
 
   package pandoc-lua-engine
     flags: -repl

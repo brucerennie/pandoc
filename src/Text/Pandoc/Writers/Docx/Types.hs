@@ -17,6 +17,7 @@ module Text.Pandoc.Writers.Docx.Types
   , ListMarker (..)
   , listMarkerToId
   , pStyleM
+  , tblStyleM
   , isStyle
   , setFirstPara
   , withParaProp
@@ -27,6 +28,7 @@ import Control.Applicative ((<|>))
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.Text (Text)
+import Skylighting (TokenType)
 import Text.Pandoc.Class.PandocMonad (PandocMonad)
 import Text.Pandoc.Definition
 import Text.Pandoc.MIME (MimeType)
@@ -67,14 +69,14 @@ listMarkerToId (NumberMarker sty delim n) = T.pack $
 
 
 data EnvProps = EnvProps{ styleElement  :: Maybe Element
-                        , otherElements :: [Element]
-                        }
+                        , otherElements :: Set.Set Element
+                        } deriving (Show)
 
 instance Semigroup EnvProps where
-  EnvProps s es <> EnvProps s' es' = EnvProps (s <|> s') (es ++ es')
+  EnvProps s es <> EnvProps s' es' = EnvProps (s <|> s') (es <> es')
 
 instance Monoid EnvProps where
-  mempty = EnvProps Nothing []
+  mempty = EnvProps Nothing mempty
   mappend = (<>)
 
 data WriterEnv = WriterEnv
@@ -87,7 +89,7 @@ data WriterEnv = WriterEnv
   , envInNote         :: Bool
   , envChangesAuthor  :: Text
   , envChangesDate    :: Text
-  , envPrintWidth     :: Integer
+  , envPrintWidth     :: Integer  -- in points
   , envLang           :: Maybe Text
   , envSectPr         :: Maybe Element
   }
@@ -120,6 +122,9 @@ data WriterState = WriterState{
        , stInsId          :: Int
        , stDelId          :: Int
        , stStyleMaps      :: StyleMaps
+       , stTokTypesMap    :: M.Map TokenType Element
+         -- ^ cached rStyle element for each highlighting token type;
+         --   computed once from stStyleMaps at the start of writing
        , stFirstPara      :: Bool
        , stFirstSectionHeader :: Bool  -- ^ True until first section header is processed
        , stNumIdUsed      :: Bool  -- ^ True if the current numId (envListNumId) has been used.
@@ -145,7 +150,8 @@ defaultWriterState = WriterState{
       , stExampleId      = Nothing
       , stInsId          = 1
       , stDelId          = 1
-      , stStyleMaps      = StyleMaps M.empty M.empty
+      , stStyleMaps      = StyleMaps M.empty M.empty M.empty
+      , stTokTypesMap    = M.empty
       , stFirstPara      = False
       , stFirstSectionHeader = True
       , stNumIdUsed      = False
@@ -189,12 +195,20 @@ pStyleM styleName = do
 withParaProp :: PandocMonad m => Element -> WS m a -> WS m a
 withParaProp d p =
   local (\env -> env {envParaProperties = ep <> envParaProperties env}) p
-  where ep = if isStyle d then EnvProps (Just d) [] else EnvProps Nothing [d]
+  where ep = if isStyle d
+                then EnvProps (Just d) mempty
+                else EnvProps Nothing (Set.singleton d)
 
 withParaPropM :: PandocMonad m => WS m Element -> WS m a -> WS m a
 withParaPropM md p = do
   d <- md
   withParaProp d p
+
+tblStyleM :: (PandocMonad m) => TableStyleName -> WS m XML.Element
+tblStyleM styleName = do
+  tStyleMap <- gets (smTableStyle . stStyleMaps)
+  let sty' = getStyleIdFromName styleName tStyleMap
+  return $ mknode "w:tblStyle" [("w:val", fromStyleId sty')] ()
 
 isStyle :: Element -> Bool
 isStyle e = isElem [] "w" "rStyle" e ||

@@ -29,14 +29,14 @@ import Text.Collate.Lang (Lang(..))
 import Text.Pandoc.Class.PandocMonad (PandocMonad, report, toLang)
 import Text.Pandoc.Definition
 import Text.Pandoc.Highlighting
-  (formatConTeXtBlock, formatConTeXtInline, highlight, styleToConTeXt)
+  (formatConTeXtBlock, formatConTeXtInline, highlight, styleToConTeXt,
+   defaultStyle)
 import Text.Pandoc.ImageSize
 import Text.Pandoc.Logging
 import Text.Pandoc.Options
 import Text.DocLayout
 import Text.Pandoc.Shared
 import Text.Pandoc.URI (isURI)
-import Text.Pandoc.Templates (renderTemplate)
 import Text.Pandoc.Walk (query)
 import Text.Pandoc.Writers.Shared
 import Text.Printf (printf)
@@ -85,9 +85,6 @@ type WM = StateT WriterState
 
 pandocToConTeXt :: PandocMonad m => WriterOptions -> Pandoc -> WM m Text
 pandocToConTeXt options (Pandoc meta blocks) = do
-  let colwidth = if writerWrapText options == WrapAuto
-                    then Just $ writerColumns options
-                    else Nothing
   metadata <- metaToContext options
               blockListToConTeXt
               (fmap chomp . inlineListToConTeXt)
@@ -134,16 +131,16 @@ pandocToConTeXt options (Pandoc meta blocks) = do
                 $ (case writerHighlightMethod options of
                       Skylighting sty | stHighlighting st ->
                         defField "highlighting-commands" (styleToConTeXt sty)
+                      DefaultHighlighting | stHighlighting st ->
+                        defField "highlighting-commands"
+                          (styleToConTeXt defaultStyle)
                       _ -> id)
                 $ (case T.toLower $ lookupMetaString "pdfa" meta of
                         "true" -> resetField "pdfa" (T.pack "1b:2005")
                         _                     -> id) metadata
   let context' = defField "context-dir" (maybe mempty toContextDir
                                          $ getField "dir" context) context
-  return $ render colwidth $
-    case writerTemplate options of
-       Nothing  -> main
-       Just tpl -> renderTemplate tpl context'
+  return $ renderWithTemplate options context' main
 
 -- change rtl to r2l, ltr to l2r
 toContextDir :: Doc Text -> Doc Text
@@ -234,8 +231,9 @@ blockToConTeXt (CodeBlock (_ident, classes, kv) str) = do
   -- blankline because \stoptyping can't have anything after it, inc. '}'
   ($$ blankline) . flush <$>
     case writerHighlightMethod opts of
-      Skylighting _ | not (null classes) -> pure unhighlighted
-      _ -> highlighted
+      Skylighting _ | not (null classes) -> highlighted
+      DefaultHighlighting | not (null classes) -> highlighted
+      _ -> pure unhighlighted
 blockToConTeXt b@(RawBlock f str)
   | f == Format "context" || f == Format "tex" = return $ literal str <> blankline
   | otherwise = empty <$ report (BlockNotRendered b)
@@ -627,6 +625,7 @@ inlineToConTeXt (Code (_ident, classes, _kv) str) = do
             return (text (T.unpack h))
   case writerHighlightMethod opts of
     Skylighting _ | not (null classes) -> highlightCode
+    DefaultHighlighting | not (null classes) -> highlightCode
     _ -> rawCode
 inlineToConTeXt (Quoted SingleQuote lst) = do
   contents <- inlineListToConTeXt lst

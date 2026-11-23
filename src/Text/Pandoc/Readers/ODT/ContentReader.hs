@@ -1,10 +1,7 @@
-{-# LANGUAGE Arrows            #-}
-{-# LANGUAGE CPP               #-}
 {-# LANGUAGE DeriveFoldable    #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PatternGuards     #-}
 {-# LANGUAGE RecordWildCards   #-}
-{-# LANGUAGE TupleSections     #-}
 {-# LANGUAGE ViewPatterns      #-}
 {-# LANGUAGE OverloadedStrings #-}
 {- |
@@ -24,14 +21,15 @@ module Text.Pandoc.Readers.ODT.ContentReader
 , read_body
 ) where
 
-import Prelude hiding (Applicative(..))
-import Control.Applicative hiding (liftA, liftA2, liftA3)
-import Control.Arrow
+import Control.Applicative ((<|>))
 import Control.Monad ((<=<))
 
+import Data.ByteString.Base64 (decodeLenient)
 import qualified Data.ByteString.Lazy as B
+import Data.Char (isSpace)
 import Data.Foldable (fold)
 import Data.List (find)
+import Data.List.NonEmpty (nonEmpty)
 import qualified Data.Map as M
 import qualified Data.Text as T
 import Data.Maybe
@@ -41,21 +39,20 @@ import Text.TeXMath (readMathML, writeTeX)
 import qualified Text.Pandoc.XML.Light as XML
 
 import Text.Pandoc.Builder hiding (underline)
-import Text.Pandoc.MediaBag (MediaBag, insertMedia)
+import Text.Pandoc.ImageSize (ImageType(..), imageType)
+import Text.Pandoc.MediaBag (MediaBag, insertMedia, mediaItems)
+import Text.Pandoc.MIME (extensionFromMimeType)
 import Text.Pandoc.Shared
+import Text.Pandoc.Walk (walk)
 import Text.Pandoc.Extensions (extensionsFromList, Extension(..))
 import qualified Text.Pandoc.UTF8 as UTF8
 
 import Text.Pandoc.Readers.Docx.Combine (combineBlocks)
 
-import Text.Pandoc.Readers.ODT.Base
 import Text.Pandoc.Readers.ODT.Namespaces
 import Text.Pandoc.Readers.ODT.StyleReader
 
-import Text.Pandoc.Readers.ODT.Arrows.State (foldS)
-import Text.Pandoc.Readers.ODT.Arrows.Utils
-import Text.Pandoc.Readers.ODT.Generic.Fallible
-import Text.Pandoc.Readers.ODT.Generic.Utils
+import Text.Pandoc.Readers.ODT.Generic.Utils (findBy)
 import Text.Pandoc.Readers.ODT.Generic.XMLConverter
 
 import Network.URI (parseRelativeReference, URI(uriPath))
@@ -66,7 +63,7 @@ import qualified Data.Set as Set
 --------------------------------------------------------------------------------
 
 type Anchor = T.Text
-type Media = [(FilePath, B.ByteString)]
+type Media = M.Map FilePath B.ByteString
 
 data ReaderState
    = ReaderState { -- | A collection of styles read somewhere else.
@@ -77,30 +74,43 @@ data ReaderState
                  , styleTrace       :: [Style]
                    -- | Keeps track of the current depth in nested lists
                  , currentListLevel :: ListLevel
-                   -- | Keeps track of the previous list start counters,
-                   -- so whenever a new list continues numbering,
-                   -- we know what number to start from.
-                   -- If  list does not continue numbering, the counter
-                   -- is being reset.
-                 , listContinuationStartCounters :: M.Map ListLevel Int
+                   -- | Keeps track of the previous list start counters
+                   -- for each list style and level, so whenever a new
+                   -- list continues numbering, we know what number to
+                   -- start from. The counters for deeper levels are
+                   -- reset whenever a new list item starts.
+                 , listContinuationStartCounters
+                     :: M.Map (Maybe StyleName, ListLevel) Int
                    -- | Lists may provide their own style, but they don't have
                    -- to. If they do not, the style of a parent list may be used
                    -- or even a default list style from the paragraph style.
                    -- This value keeps track of the closest list style there
                    -- currently is.
                  , currentListStyle :: Maybe ListStyle
+                   -- | The name of 'currentListStyle', if known.
+                 , currentListStyleName :: Maybe StyleName
                    -- | A map from internal anchor names to "pretty" ones.
                    -- The mapping is a purely cosmetic one.
                  , bookmarkAnchors  :: M.Map Anchor Anchor
+                   -- | The "pretty" anchors handed out so far, i.e. the
+                   -- values of 'bookmarkAnchors'. Kept separately so that
+                   -- checking an anchor for uniqueness does not cost a
+                   -- traversal of the whole map.
+                 , usedAnchors      :: Set.Set Anchor
                    -- | A map of files / binary data from the archive
                  , envMedia         :: Media
                    -- | Hold binary resources used in the document
                  , odtMediaBag      :: MediaBag
+                   -- | Whether to record named styles in @custom-style@
+                   -- attributes (the @styles@ extension)
+                 , keepStyles       :: Bool
                  }
   deriving ( Show )
 
-readerState :: Styles -> Media -> ReaderState
-readerState styles media = ReaderState styles [] 0 M.empty Nothing M.empty media mempty
+readerState :: Bool -> Styles -> [(FilePath, B.ByteString)] -> ReaderState
+readerState keepStyles' styles media =
+  ReaderState styles [] 0 M.empty Nothing Nothing M.empty Set.empty
+              (M.fromList media) mempty keepStyles'
 
 --
 pushStyle'  :: Style -> ReaderState -> ReaderState
@@ -116,20 +126,24 @@ modifyListLevel :: (ListLevel -> ListLevel) -> (ReaderState -> ReaderState)
 modifyListLevel f state = state { currentListLevel = f (currentListLevel state) }
 
 --
-modifyListContinuationStartCounter :: ListLevel -> Int -> (ReaderState -> ReaderState)
-modifyListContinuationStartCounter listLevel count state =
-    state { listContinuationStartCounters = M.insert listLevel count (listContinuationStartCounters state) }
+modifyListContinuationStartCounter :: Maybe StyleName -> ListLevel -> Int
+                                   -> (ReaderState -> ReaderState)
+modifyListContinuationStartCounter mStyleName listLevel count state =
+    state { listContinuationStartCounters =
+              M.insert (mStyleName, listLevel) count
+                (listContinuationStartCounters state) }
+
+-- | Reset the counters of all list levels deeper than the given one.
+resetDeeperListContinuationStartCounters :: ListLevel
+                                         -> (ReaderState -> ReaderState)
+resetDeeperListContinuationStartCounters listLevel state =
+    state { listContinuationStartCounters =
+              M.filterWithKey (\(_, lvl) _ -> lvl <= listLevel)
+                (listContinuationStartCounters state) }
 
 --
 shiftListLevel :: ListLevel -> (ReaderState -> ReaderState)
 shiftListLevel diff = modifyListLevel (+ diff)
-
---
-swapCurrentListStyle :: Maybe ListStyle -> ReaderState
-                     -> (ReaderState, Maybe ListStyle)
-swapCurrentListStyle mListStyle state = ( state { currentListStyle = mListStyle }
-                                        ,  currentListStyle state
-                                        )
 
 --
 lookupPrettyAnchor :: Anchor -> ReaderState -> Maybe Anchor
@@ -138,11 +152,9 @@ lookupPrettyAnchor anchor ReaderState{..} = M.lookup anchor bookmarkAnchors
 --
 putPrettyAnchor :: Anchor -> Anchor -> ReaderState -> ReaderState
 putPrettyAnchor ugly pretty state@ReaderState{..}
-  = state { bookmarkAnchors = M.insert ugly pretty bookmarkAnchors }
-
---
-usedAnchors :: ReaderState -> [Anchor]
-usedAnchors ReaderState{..} = M.elems bookmarkAnchors
+  = state { bookmarkAnchors = M.insert ugly pretty bookmarkAnchors
+          , usedAnchors     = Set.insert pretty usedAnchors
+          }
 
 getMediaBag :: ReaderState -> MediaBag
 getMediaBag ReaderState{..} = odtMediaBag
@@ -158,182 +170,183 @@ insertMedia' (fp, bs) state@ReaderState{..}
 -- Reader type and associated tools
 --------------------------------------------------------------------------------
 
-type ODTReader      a b = XMLReader     ReaderState a b
+type ODTReader a = XMLConverter Namespace ReaderState a
 
-type ODTReaderSafe  a b = XMLReaderSafe ReaderState a b
-
--- | Extract something from the styles
-fromStyles :: (a -> Styles -> b) -> ODTReaderSafe a b
-fromStyles f =     keepingTheValue
-                     (getExtraState >>^ styleSet)
-               >>% f
+-- | Extract the styles from the reader state
+getStyles :: ODTReader Styles
+getStyles = styleSet <$> getExtraState
 
 --
-getStyleByName :: ODTReader StyleName Style
-getStyleByName = fromStyles lookupStyle >>^ maybeToChoice
+getStyleByName :: StyleName -> ODTReader Style
+getStyleByName name = getStyles >>= fromMaybeF . lookupStyle name
 
 --
-findStyleFamily :: ODTReader Style StyleFamily
-findStyleFamily = fromStyles getStyleFamily >>^ maybeToChoice
+--
+lookupListStyle :: StyleName -> ODTReader ListStyle
+lookupListStyle name = getStyles >>= fromMaybeF . lookupListStyleByName name
 
 --
-lookupListStyle :: ODTReader StyleName ListStyle
-lookupListStyle = fromStyles lookupListStyleByName >>^ maybeToChoice
+switchCurrentListStyle :: Maybe (StyleName, ListStyle)
+                       -> ODTReader (Maybe (StyleName, ListStyle))
+switchCurrentListStyle mListStyle = do
+  state <- getExtraState
+  setExtraState $ state { currentListStyle = snd <$> mListStyle
+                        , currentListStyleName = fst <$> mListStyle }
+  return $ (,) <$> currentListStyleName state <*> currentListStyle state
 
 --
-switchCurrentListStyle :: ODTReaderSafe (Maybe ListStyle) (Maybe ListStyle)
-switchCurrentListStyle =     keepingTheValue getExtraState
-                         >>% swapCurrentListStyle
-                         >>> first setExtraState
-                         >>^ snd
+pushStyle :: Style -> ODTReader ()
+pushStyle style = modifyExtraState (pushStyle' style)
 
 --
-pushStyle :: ODTReaderSafe Style Style
-pushStyle =     keepingTheValue (
-                  (     keepingTheValue getExtraState
-                    >>% pushStyle'
-                  )
-                  >>> setExtraState
-                )
-            >>^ fst
+popStyle :: ODTReader ()
+popStyle = modifyExtraState popStyle'
 
 --
-popStyle :: ODTReaderSafe x x
-popStyle =     keepingTheValue (
-                     getExtraState
-                 >>> arr popStyle'
-                 >>> setExtraState
-               )
-           >>^ fst
+getCurrentListLevel :: ODTReader ListLevel
+getCurrentListLevel = currentListLevel <$> getExtraState
 
 --
-getCurrentListLevel :: ODTReaderSafe a ListLevel
-getCurrentListLevel = getExtraState >>^ currentListLevel
+getPreviousListStartCounter :: Maybe StyleName -> ListLevel
+                            -> ODTReader (Maybe Int)
+getPreviousListStartCounter mStyleName listLevel =
+  M.lookup (mStyleName, listLevel) . listContinuationStartCounters
+    <$> getExtraState
 
 --
-getListContinuationStartCounters :: ODTReaderSafe a (M.Map ListLevel Int)
-getListContinuationStartCounters = getExtraState >>^ listContinuationStartCounters
-
-
---
-getPreviousListStartCounter :: ODTReaderSafe ListLevel Int
-getPreviousListStartCounter = proc listLevel -> do
-    counts <- getListContinuationStartCounters -< ()
-    returnA -< M.findWithDefault 0 listLevel counts
+updateMediaWithResource :: (FilePath, B.ByteString) -> ODTReader ()
+updateMediaWithResource resource = modifyExtraState (insertMedia' resource)
 
 --
-updateMediaWithResource :: ODTReaderSafe (FilePath, B.ByteString) (FilePath, B.ByteString)
-updateMediaWithResource = keepingTheValue (
-                 (keepingTheValue getExtraState
-                  >>% insertMedia'
-                  )
-                 >>> setExtraState
-               )
-           >>^ fst
-
-lookupResource :: ODTReaderSafe FilePath (FilePath, B.ByteString)
-lookupResource = proc target -> do
-    state <- getExtraState -< ()
-    case lookup target (getMediaEnv state) of
-      Just bs -> returnV (target, bs) -<< ()
-      Nothing -> returnV ("", B.empty) -< ()
+lookupResource :: FilePath -> ODTReader (Maybe B.ByteString)
+lookupResource target = M.lookup target . getMediaEnv <$> getExtraState
 
 type AnchorPrefix = T.Text
 
 -- | An adaptation of 'uniqueIdent' from "Text.Pandoc.Shared" that generates a
 -- unique identifier but without assuming that the id should be for a header.
 -- Second argument is a list of already used identifiers.
-uniqueIdentFrom :: AnchorPrefix -> [Anchor] -> Anchor
+uniqueIdentFrom :: AnchorPrefix -> Set.Set Anchor -> Anchor
 uniqueIdentFrom baseIdent usedIdents =
   let  numIdent n = baseIdent <> "-" <> T.pack (show n)
-  in  if baseIdent `elem` usedIdents
+  in  if baseIdent `Set.member` usedIdents
         then maybe baseIdent numIdent
-             $ find (\x -> numIdent x `notElem` usedIdents) ([1..60000] :: [Int])
+             $ find (\x -> numIdent x `Set.notMember` usedIdents)
+                 ([1..60000] :: [Int])
                -- if we have more than 60,000, allow repeats
         else baseIdent
 
 -- | First argument: basis for a new "pretty" anchor if none exists yet
 -- Second argument: a key ("ugly" anchor)
 -- Returns: saved "pretty" anchor or created new one
-getPrettyAnchor :: ODTReaderSafe (AnchorPrefix, Anchor) Anchor
-getPrettyAnchor = proc (baseIdent, uglyAnchor) -> do
-  state <- getExtraState -< ()
+getPrettyAnchor :: AnchorPrefix -> Anchor -> ODTReader Anchor
+getPrettyAnchor baseIdent uglyAnchor = do
+  state <- getExtraState
   case lookupPrettyAnchor uglyAnchor state of
-    Just prettyAnchor -> returnA -< prettyAnchor
+    Just prettyAnchor -> return prettyAnchor
     Nothing           -> do
       let newPretty = uniqueIdentFrom baseIdent (usedAnchors state)
-      modifyExtraState (putPrettyAnchor uglyAnchor newPretty) -<< newPretty
+      modifyExtraState (putPrettyAnchor uglyAnchor newPretty)
+      return newPretty
 
 -- | Input: basis for a new header anchor
 -- Output: saved new anchor
-getHeaderAnchor :: ODTReaderSafe Inlines Anchor
-getHeaderAnchor = proc title -> do
-  state <- getExtraState -< ()
+getHeaderAnchor :: Inlines -> ODTReader Anchor
+getHeaderAnchor title = do
+  state <- getExtraState
   let exts = extensionsFromList [Ext_auto_identifiers]
-  let anchor = uniqueIdent exts (toList title)
-                (Set.fromList $ usedAnchors state)
-  modifyExtraState (putPrettyAnchor anchor anchor) -<< anchor
+  let anchor = uniqueIdent exts (toList title) (usedAnchors state)
+  modifyExtraState (putPrettyAnchor anchor anchor)
+  return anchor
 
 
 --------------------------------------------------------------------------------
 -- Working with styles
 --------------------------------------------------------------------------------
 
---
-readStyleByName :: ODTReader a (StyleName, Style)
-readStyleByName =
-  findAttr NsText "style-name" >>? keepingTheValue getStyleByName >>^ liftE
-  where
-    liftE :: (StyleName, Fallible Style) -> Fallible (StyleName, Style)
-    liftE (name, Right v) = Right (name, v)
-    liftE (_, Left v)     = Left v
+-- | Read the style referenced by the current element's
+-- style-name attribute. Fails if there is no such attribute or if the
+-- style cannot be found.
+readStyleByName :: ODTReader (StyleName, Style)
+readStyleByName = do
+  name  <- findAttr NsText "style-name"
+  style <- getStyleByName name
+  return (name, style)
 
---
-isStyleToTrace :: ODTReader Style Bool
-isStyleToTrace = findStyleFamily >>?^ (==FaText)
+-- | With the @styles@ extension, the name (as shown to the user) of the
+-- named style that the current element is an instance of, unless the
+-- first argument says to ignore it. If the element's style is an automatic
+-- one, its named parent is used. A style that is not defined at all is
+-- taken to be a named one, since automatic styles are always defined.
+getCustomStyle :: (StyleName -> Bool) -> ODTReader (Maybe T.Text)
+getCustomStyle ignored = do
+  keep <- keepStyles <$> getExtraState
+  if not keep
+     then return Nothing
+     else do
+       fName  <- tryC (findAttr NsText "style-name")
+       styles <- getStyles
+       return $ case fName of
+         Right name
+           | Just (name', mbStyle) <- lookupNamedStyle name styles
+           , not (ignored name')
+           -> Just (styleUIName name' mbStyle)
+         _ -> Nothing
 
---
-withNewStyle :: ODTReaderSafe x Inlines -> ODTReaderSafe x Inlines
-withNewStyle a = proc x -> do
-  fStyle <- readStyleByName -< ()
+customStyleAttr :: T.Text -> Attr
+customStyleAttr sty = ("", [], [("custom-style", sty)])
+
+-- | Paragraph styles not recorded with the @styles@ extension: the
+-- default style, the default styles of table cells, and styles that
+-- pandoc interprets itself.
+ignoredParaStyle :: StyleName -> Bool
+ignoredParaStyle name = name `elem` [ "Standard"
+                                    , "Table_20_Contents"
+                                    , "Table_20_Heading"
+                                    ] || isTableCaptionStyle name
+
+-- | Character styles not recorded with the @styles@ extension.
+ignoredCharStyle :: StyleName -> Bool
+ignoredCharStyle name = name `elem` [ "Internet_20_link"
+                                    , "Visited_20_Internet_20_Link"
+                                    , "Emphasis"
+                                    , "Strong_20_Emphasis"
+                                    ] || isCodeStyle name
+
+isCodeStyle :: StyleName -> Bool
+isCodeStyle "Source_Text" = True
+isCodeStyle "Source_20_Text" = True
+isCodeStyle _             = False
+
+isTableCaptionStyle :: StyleName -> Bool
+isTableCaptionStyle "Table" = True
+isTableCaptionStyle _       = False
+
+-- | Apply the text formatting of the current element's style. If the
+-- first argument is 'True', the formatting of a named (non-automatic)
+-- style is not applied, since it is recorded in a @custom-style@
+-- attribute instead; the direct formatting of an automatic style still is.
+withNewStyle :: Bool -> ODTReader Inlines -> ODTReader Inlines
+withNewStyle styleRecorded reader = do
+  fStyle <- tryC readStyleByName
   case fStyle of
-    Right (styleName, _) | isCodeStyle styleName -> do
-      inlines <- a -< x
-      arr inlineCode -<< inlines
-    Right (_, style) -> do
-      mFamily    <- arr styleFamily -< style
-      fTextProps <- arr ( maybeToChoice
-                        . textProperties
-                        . styleProperties
-                        )           -< style
-      case fTextProps of
-        Right textProps -> do
-          state        <- getExtraState             -< ()
-          let triple = (state, textProps, mFamily)
-          modifier     <- arr modifierFromStyleDiff -< triple
-          fShouldTrace <- isStyleToTrace            -< style
-          case fShouldTrace of
-            Right shouldTrace ->
-              if shouldTrace
-                then do
-                  pushStyle      -< style
-                  inlines   <- a -< x
-                  popStyle       -< ()
-                  arr modifier   -<< inlines
-                else
-    -- In case anything goes wrong
-                      a -< x
-            Left _ -> a -< x
-        Left _     -> a -< x
-    Left _         -> a -< x
+    Right (styleName, _) | isCodeStyle styleName ->
+      inlineCode <$> reader
+    Right (_, style)
+      | Just textProps <- textProperties (styleProperties style) -> do
+          state <- getExtraState
+          let mFamily  = styleFamily style
+              modifier
+                | styleRecorded && not (styleAutomatic style) = id
+                | otherwise = modifierFromStyleDiff (state, textProps, mFamily)
+          pushStyle style
+          inlines <- reader
+          popStyle
+          return $ modifier inlines
+    _ -> reader
   where
-    isCodeStyle :: StyleName -> Bool
-    isCodeStyle "Source_Text" = True
-    isCodeStyle "Source_20_Text" = True
-    isCodeStyle _             = False
-
     inlineCode :: Inlines -> Inlines
-    inlineCode = code . T.concat . map stringify . toList
+    inlineCode = code . stringifyInlines
 
 type PropertyTriple = (ReaderState, TextProperties, Maybe StyleFamily)
 type InlineModifier = Inlines -> Inlines
@@ -342,16 +355,15 @@ type InlineModifier = Inlines -> Inlines
 -- an instance of 'Inlines'
 modifierFromStyleDiff :: PropertyTriple -> InlineModifier
 modifierFromStyleDiff propertyTriple  =
-  composition $
+  foldr (.) id $
   getVPosModifier propertyTriple
-  : map (first ($ propertyTriple) >>> ifThen_else ignore)
+  : map (\(hasChanged', modifier) ->
+           if hasChanged' propertyTriple then modifier else ignore)
         [ (hasEmphChanged           , emph      )
         , (hasChanged isStrong      , strong    )
         , (hasChanged strikethrough , strikeout )
         ]
   where
-    ifThen_else else' (if',then') = if if' then then' else else'
-
     ignore = id :: InlineModifier
 
     getVPosModifier :: PropertyTriple -> InlineModifier
@@ -367,9 +379,9 @@ modifierFromStyleDiff propertyTriple  =
     getVPosModifier' ( _      ,  _        ) = ignore
 
     hasEmphChanged :: PropertyTriple -> Bool
-    hasEmphChanged = swing any [ hasChanged  isEmphasised
-                               , hasChanged  underline
-                               ]
+    hasEmphChanged triple = any ($ triple) [ hasChanged  isEmphasised
+                                           , hasChanged  underline
+                                           ]
 
     hasChanged property triple@(_, property -> newProperty, _) =
         (/= Just newProperty) (lookupPreviousValue property triple)
@@ -414,24 +426,19 @@ getParaModifier listLevel props
      = False
 
 --
-constructPara :: ODTReaderSafe a Blocks -> ODTReaderSafe a Blocks
-constructPara reader = proc blocks -> do
-  fStyle <- readStyleByName -< blocks
+constructPara :: ODTReader Blocks -> ODTReader Blocks
+constructPara reader = do
+  fStyle <- tryC readStyleByName
   case fStyle of
-    Left   _    -> reader -< blocks
-    Right (styleName, _) | isTableCaptionStyle styleName -> do
-      blocks' <- reader   -< blocks
-      arr tableCaptionP  -< blocks'
+    Left   _    -> reader
+    Right (styleName, _) | isTableCaptionStyle styleName ->
+      tableCaptionP <$> reader
     Right (_, style) -> do
-      props <- fromStyles extendedStylePropertyChain -< [style]
-      listLevel <- getCurrentListLevel -< ()
-      let modifier = getParaModifier listLevel props
-      blocks' <- reader   -<  blocks
-      arr modifier        -<< blocks'
+      styles <- getStyles
+      let props = extendedStylePropertyChain [style] styles
+      listLevel <- getCurrentListLevel
+      getParaModifier listLevel props <$> reader
   where
-    isTableCaptionStyle :: StyleName -> Bool
-    isTableCaptionStyle "Table" = True
-    isTableCaptionStyle _       = False
     tableCaptionP b = divWith ("", ["caption"], []) b
 
 type ListConstructor = [Blocks] -> Blocks
@@ -466,78 +473,79 @@ getListConstructor ListLevelStyle{..} startNum =
 -- Then prepares the state for eventual child lists and constructs the list from
 -- the results.
 -- Two main cases are handled: The list may provide its own style or it may
--- rely on a parent list's style. I the former case the current style in the
+-- rely on a parent list's style. In the former case the current style in the
 -- state must be switched before and after the call to the child converter
 -- while in the latter the child converter can be called directly.
 -- If anything goes wrong, a default ordered-list-constructor is used.
-constructList :: ODTReaderSafe x [Blocks] -> ODTReaderSafe x Blocks
-constructList reader = proc x -> do
-  modifyExtraState (shiftListLevel 1)                                  -< ()
-  listLevel                    <- getCurrentListLevel                  -< ()
-  listContinuationStartCounter <- getPreviousListStartCounter          -< listLevel
-  fStyleName                   <- findAttr NsText "style-name"         -< ()
-  fContNumbering               <- findAttr NsText "continue-numbering" -< ()
-  listItemCount                <- reader >>^ length                    -< x
+constructList :: ODTReader [Blocks] -> ODTReader Blocks
+constructList reader = do
+  modifyExtraState (shiftListLevel 1)
+  listLevel                    <- getCurrentListLevel
+  fStyleName                   <- tryC (findAttr NsText "style-name")
+  fContNumbering               <- tryC (findAttr NsText "continue-numbering")
+  inheritedStyleName           <- currentListStyleName <$> getExtraState
 
-  let continueNumbering = case fContNumbering of
-                            Right "true" -> True
-                            _            -> False
+  -- Numbering is continued from the previous list with the same
+  -- list style (and level), if there is one:
+  let mStyleName = either (const inheritedStyleName) Just fStyleName
+  listContinuationStartCounter <- getPreviousListStartCounter mStyleName
+                                    listLevel
 
-  let startNumForListLevelStyle = listStartingNumber continueNumbering listContinuationStartCounter
-  let defaultOrderedListConstructor = constructOrderedList (startNumForListLevelStyle Nothing) listLevel listItemCount
+  let continueNumbering = fContNumbering == Right "true"
+
+      startNumForListLevelStyle mListLevelStyle
+        | continueNumbering
+        , Just n <- listContinuationStartCounter = n
+        | otherwise = maybe 1 listItemStart mListLevelStyle
+
+      constructWith startNum constructor = do
+        items <- reader
+        modifyExtraState (shiftListLevel (-1))
+        modifyExtraState (modifyListContinuationStartCounter mStyleName
+                           listLevel (startNum + length items))
+        return $ constructor items
+
+      constructOrderedList =
+        let startNum = startNumForListLevelStyle Nothing
+        in  constructWith startNum
+              (orderedListWith (startNum, DefaultStyle, DefaultDelim))
+
+      constructListWith listLevelStyle =
+        let startNum = startNumForListLevelStyle (Just listLevelStyle)
+        in  constructWith startNum (getListConstructor listLevelStyle startNum)
 
   case fStyleName of
     Right styleName -> do
-      fListStyle <- lookupListStyle -< styleName
+      fListStyle <- tryC (lookupListStyle styleName)
       case fListStyle of
-        Right listStyle -> do
-          fListLevelStyle <- arr (uncurry getListLevelStyle) -< (listLevel, listStyle)
-          case fListLevelStyle of
+        Right listStyle ->
+          case getListLevelStyle listLevel listStyle of
             Just listLevelStyle -> do
-              let startNum = startNumForListLevelStyle $ Just listLevelStyle
-              oldListStyle <- switchCurrentListStyle                    -<  Just listStyle
-              blocks       <- constructListWith listLevelStyle startNum listLevel listItemCount -<< x
-              switchCurrentListStyle                                    -<  oldListStyle
-              returnA                                                   -<  blocks
-            Nothing             -> defaultOrderedListConstructor -<< x
-        Left _                  -> defaultOrderedListConstructor -<< x
+              oldListStyle <- switchCurrentListStyle
+                                (Just (styleName, listStyle))
+              blocks       <- constructListWith listLevelStyle
+              _            <- switchCurrentListStyle oldListStyle
+              return blocks
+            Nothing             -> constructOrderedList
+        Left _                  -> constructOrderedList
     Left _ -> do
-      state      <- getExtraState        -< ()
-      mListStyle <- arr currentListStyle -< state
+      mListStyle <- currentListStyle <$> getExtraState
       case mListStyle of
-        Just listStyle -> do
-          fListLevelStyle <- arr (uncurry getListLevelStyle) -< (listLevel, listStyle)
-          case fListLevelStyle of
-            Just listLevelStyle -> do
-              let startNum = startNumForListLevelStyle $ Just listLevelStyle
-              constructListWith listLevelStyle startNum listLevel listItemCount -<< x
-            Nothing             -> defaultOrderedListConstructor -<< x
-        Nothing                 -> defaultOrderedListConstructor -<< x
-  where
-    listStartingNumber continueNumbering listContinuationStartCounter mListLevelStyle
-      | continueNumbering                = listContinuationStartCounter
-      | isJust mListLevelStyle           = listItemStart (fromJust mListLevelStyle)
-      | otherwise                        = 1
-    constructOrderedList startNum listLevel listItemCount =
-          reader
-      >>> modifyExtraState (shiftListLevel (-1))
-      >>> modifyExtraState (modifyListContinuationStartCounter listLevel (startNum + listItemCount))
-      >>^ orderedListWith (startNum, DefaultStyle, DefaultDelim)
-    constructListWith listLevelStyle startNum listLevel listItemCount =
-          reader
-      >>> getListConstructor listLevelStyle startNum
-      ^>> modifyExtraState (shiftListLevel (-1))
-      >>> modifyExtraState (modifyListContinuationStartCounter listLevel (startNum + listItemCount))
+        Just listStyle ->
+          case getListLevelStyle listLevel listStyle of
+            Just listLevelStyle -> constructListWith listLevelStyle
+            Nothing             -> constructOrderedList
+        Nothing                 -> constructOrderedList
 
 --------------------------------------------------------------------------------
 -- Readers
 --------------------------------------------------------------------------------
 
-type ElementMatcher result = (Namespace, ElementName, ODTReader result result)
+type Matcher result = ElementMatcher Namespace ReaderState result
 
-type InlineMatcher = ElementMatcher Inlines
+type InlineMatcher = Matcher Inlines
 
-type BlockMatcher  = ElementMatcher Blocks
+type BlockMatcher  = Matcher Blocks
 
 newtype FirstMatch a = FirstMatch (Alt Maybe a)
   deriving (Foldable, Monoid, Semigroup)
@@ -554,33 +562,14 @@ instance Monoid CombiningBlocks where
   mempty = CombiningBlocks mempty
 
 --
-matchingElement :: (Monoid e)
-                => Namespace -> ElementName
-                -> ODTReaderSafe  e e
-                -> ElementMatcher e
-matchingElement ns name reader = (ns, name, asResultAccumulator reader)
-  where
-   asResultAccumulator :: (ArrowChoice a, Monoid m) => a m m -> a m (Fallible m)
-   asResultAccumulator a = liftAsSuccess $ keepingTheValue a >>% mappend
+matchingElement :: Namespace -> ElementName
+                -> ODTReader e
+                -> Matcher e
+matchingElement ns name reader = (ns, name, reader)
 
 --
-matchChildContent'   :: (Monoid result)
-                     => [ElementMatcher result]
-                     ->  ODTReaderSafe a result
-matchChildContent' ls = returnV mempty >>> matchContent' ls
-
---
-matchSmushedChildBlocks' :: [ElementMatcher CombiningBlocks] ->  ODTReaderSafe a Blocks
-matchSmushedChildBlocks' ls = liftA unCombiningBlocks
-                              $ returnV mempty
-                                >>> matchContent' ls
-
---
-matchChildContent    :: (Monoid result)
-                     => [ElementMatcher result]
-                     ->  ODTReaderSafe  (result, XML.Content) result
-                     ->  ODTReaderSafe a result
-matchChildContent ls fallback = returnV mempty >>> matchContent ls fallback
+matchSmushedChildBlocks' :: [Matcher CombiningBlocks] -> ODTReader Blocks
+matchSmushedChildBlocks' ls = unCombiningBlocks <$> matchContent' ls
 
 --------------------------------------------
 -- Matchers
@@ -591,94 +580,164 @@ matchChildContent ls fallback = returnV mempty >>> matchContent ls fallback
 ----------------------
 
 --
--- | Open Document allows several consecutive spaces if they are marked up
-read_plain_text :: ODTReaderSafe (Inlines, XML.Content) Inlines
-read_plain_text =  fst ^&&& read_plain_text' >>% recover
-  where
-    -- fallible version
-    read_plain_text' :: ODTReader (Inlines, XML.Content) Inlines
-    read_plain_text' =      (     second ( arr extractText )
-                              >>^ spreadChoice >>?! second text
-                            )
-                       >>?% mappend
-    --
-    extractText     :: XML.Content -> Fallible T.Text
-    extractText (XML.Text cData) = succeedWith (XML.cdData cData)
-    extractText         _        = failEmpty
+-- | Open Document allows several consecutive spaces if they are marked up.
+-- Text content of the current element is read with this fallback converter.
+read_plain_text :: XML.Content -> ODTReader Inlines
+read_plain_text (XML.Text cData) = return $ text $ XML.cdData cData
+read_plain_text _                = return mempty
 
 read_text_seq :: InlineMatcher
 read_text_seq  = matchingElement NsText "sequence"
-                 $ matchChildContent [] read_plain_text
+                 $ matchContent [] read_plain_text
 
 
 -- specifically. I honor that, although the current implementation of 'mappend'
 -- for 'Inlines' in "Text.Pandoc.Builder" will collapse them again.
 -- The rational is to be prepared for future modifications.
+-- The repeat count is attacker-controlled and unbounded in ODF, so cap
+-- it: a 832-byte document with @text:c="200000000"@ would otherwise
+-- exhaust memory.
+_MAX_SPACES_     :: Int
+_MAX_SPACES_      = 1000
+
 read_spaces      :: InlineMatcher
-read_spaces       = matchingElement NsText "s" (
-                          readAttrWithDefault NsText "c" 1 -- how many spaces?
-                      >>^ fromList.(`replicate` Space)
-                    )
+read_spaces       = matchingElement NsText "s" $ do
+                      count <- readAttrWithDefault NsText "c" 1 -- how many spaces?
+                      return $ fromList (replicate (min count _MAX_SPACES_) Space)
 --
 read_line_break  :: InlineMatcher
 read_line_break   = matchingElement NsText "line-break"
-                    $ returnV linebreak
+                    $ return linebreak
 --
 read_tab         :: InlineMatcher
 read_tab          = matchingElement NsText "tab"
-                    $ returnV space
+                    $ return space
 --
 read_span        :: InlineMatcher
-read_span         = matchingElement NsText "span"
-                    $ withNewStyle
-                    $ matchChildContent [ read_span
-                                        , read_spaces
-                                        , read_line_break
-                                        , read_tab
-                                        , read_link
-                                        , read_frame
-                                        , read_note
-                                        , read_citation
-                                        , read_bookmark
-                                        , read_bookmark_start
-                                        , read_reference_start
-                                        , read_bookmark_ref
-                                        , read_reference_ref
-                                        ] read_plain_text
+read_span         = matchingElement NsText "span" $ do
+                      mbCustom <- getCustomStyle ignoredCharStyle
+                      inlines  <- withNewStyle (isJust mbCustom)
+                                    matchInlineContent
+                      return $ case mbCustom of
+                        Just sty | not (null inlines)
+                          -> spanWith (customStyleAttr sty) inlines
+                        _ -> inlines
+
+-- | ODF wraps inline content in a few elements that carry nothing but
+-- metadata: @text:meta@ holds RDFa annotations, @text:meta-field@ marks
+-- up bibliographic data. They are transparent as far as we are concerned.
+read_meta        :: InlineMatcher
+read_meta         = matchingElement NsText "meta" matchInlineContent
+
+read_meta_field  :: InlineMatcher
+read_meta_field   = matchingElement NsText "meta-field" matchInlineContent
+
+-- | A ruby annotation glosses a base text. Pandoc cannot represent the
+-- gloss, so keep the base text rather than dropping both.
+read_ruby        :: InlineMatcher
+read_ruby         = matchingElement NsText "ruby"
+                    $ matchContent' [ matchingElement NsText "ruby-base"
+                                        matchInlineContent ]
+
+-- | Fields hold a value that the producing application computes, such as
+-- a page number, a document property or a user variable. The element
+-- content is the text that application last displayed for the field,
+-- which is the best rendering available to us.
+read_fields      :: [InlineMatcher]
+read_fields       = [ matchingElement NsText name (matchContent [] read_plain_text)
+                    | name <- fieldElements ]
+
+fieldElements    :: [ElementName]
+fieldElements     =
+  [ "page-number", "page-count", "page-continuation", "page-variable-get"
+  , "date", "time", "creation-date", "creation-time"
+  , "modification-date", "modification-time"
+  , "print-date", "print-time", "printed-by"
+  , "editing-cycles", "editing-duration"
+  , "author-name", "author-initials", "initial-creator", "creator"
+  , "title", "subject", "description", "keywords"
+  , "chapter", "file-name", "template-name", "sheet-name"
+  , "variable-get", "variable-set", "variable-input"
+  , "user-defined", "user-field-get", "user-field-input"
+  , "expression", "text-input", "placeholder"
+  , "word-count", "character-count", "paragraph-count"
+  , "table-count", "image-count", "object-count"
+  , "database-display", "database-name", "database-row-number"
+  , "sequence-ref", "note-ref"
+  , "sender-firstname", "sender-lastname", "sender-initials"
+  , "sender-title", "sender-position", "sender-email"
+  , "sender-company", "sender-street", "sender-city"
+  , "sender-postal-code", "sender-country", "sender-state-or-province"
+  , "sender-phone-private", "sender-phone-work", "sender-fax"
+  ]
 
 --
-read_paragraph   :: ElementMatcher CombiningBlocks
-read_paragraph    = matchingElement NsText "p" $
-                      liftA CombiningBlocks $ proc blocks -> do
-                        fStyle <- readStyleByName -< blocks
+read_paragraph   :: Matcher CombiningBlocks
+read_paragraph    = read_paragraph' True
+
+-- | Read a paragraph. If the argument is 'True' and the @styles@ extension
+-- is enabled, a paragraph with a named style (other than one of the
+-- 'ignoredParaStyle's) is wrapped in a Div with a @custom-style@
+-- attribute. This is not done for the paragraphs of list items, which
+-- would make every list loose.
+read_paragraph'  :: Bool -> Matcher CombiningBlocks
+read_paragraph' recordStyle = matchingElement NsText "p" $ fmap CombiningBlocks $ do
+                      fStyle    <- tryC readStyleByName
+                      listLevel <- getCurrentListLevel
+                      mbCustom  <- if recordStyle && listLevel == 0
+                                      then getCustomStyle ignoredParaStyle
+                                      else return Nothing
+                      maybe id (divWith . customStyleAttr) mbCustom <$>
                         case fStyle of
-                          Right style | isPreformattedStyle style -> do
-                            liftA (codeBlock . stringify) $ matchParagraphContent -< blocks
+                          Right style | isPreformattedStyle style ->
+                            codeBlock . stringifyInlines <$> matchInlineContent
                           _ ->
-                            constructPara $ liftA para $ withNewStyle matchParagraphContent -< blocks
-                        where
-                          isPreformattedStyle :: (StyleName, Style) -> Bool
-                          isPreformattedStyle ("Preformatted_20_Text", _) = True
-                          isPreformattedStyle (_, Style { styleParentName = Just "Preformatted_20_Text" }) = True
-                          isPreformattedStyle _ = False
+                            constructPara (para <$> withNewStyle (isJust mbCustom)
+                                                      matchInlineContent)
+                    where
+                      isPreformattedStyle :: (StyleName, Style) -> Bool
+                      isPreformattedStyle ("Preformatted_20_Text", _) = True
+                      isPreformattedStyle (_, Style { styleParentName = Just "Preformatted_20_Text" }) = True
+                      isPreformattedStyle _ = False
 
 
-matchParagraphContent :: ODTReaderSafe a Inlines
-matchParagraphContent = matchChildContent [ read_span
-                                          , read_spaces
-                                          , read_line_break
-                                          , read_tab
-                                          , read_link
-                                          , read_note
-                                          , read_citation
-                                          , read_bookmark
-                                          , read_bookmark_start
-                                          , read_reference_start
-                                          , read_bookmark_ref
-                                          , read_reference_ref
-                                          , read_frame
-                                          , read_text_seq
-                                          ] read_plain_text
+-- | Reads the inline content of a paragraph, heading or span.
+matchInlineContent :: ODTReader Inlines
+matchInlineContent = matchContent inlineMatchers read_plain_text
+
+inlineMatchers :: [InlineMatcher]
+inlineMatchers = [ read_span
+                 , read_spaces
+                 , read_line_break
+                 , read_tab
+                 , read_link
+                 , read_note
+                 , read_citation
+                 , read_bookmark
+                 , read_bookmark_start
+                 , read_reference_start
+                 , read_bookmark_ref
+                 , read_reference_ref
+                 , read_frame
+                 , read_text_seq
+                 , read_meta
+                 , read_meta_field
+                 , read_ruby
+                 ] ++ read_fields
+
+-- | Reads the block-level content that ODF permits wherever it permits a
+-- paragraph: in the body of the document, and in a section, a list item, a
+-- footnote or a table cell.
+matchBlockContent :: ODTReader Blocks
+matchBlockContent = matchSmushedChildBlocks' blockMatchers
+
+blockMatchers :: [Matcher CombiningBlocks]
+blockMatchers = [ read_paragraph
+                , read_header
+                , read_list
+                , read_table
+                , read_section
+                ]
 
 
 ----------------------
@@ -686,72 +745,56 @@ matchParagraphContent = matchChildContent [ read_span
 ----------------------
 
 --
-read_header      :: ElementMatcher CombiningBlocks
-read_header       = matchingElement NsText "h"
-                    $  proc blocks -> do
-  level    <- ( readAttrWithDefault NsText "outline-level" 1
-              ) -< blocks
-  children <- ( matchChildContent [ read_span
-                                  , read_spaces
-                                  , read_line_break
-                                  , read_tab
-                                  , read_link
-                                  , read_note
-                                  , read_citation
-                                  , read_bookmark
-                                  , read_bookmark_start
-                                  , read_reference_start
-                                  , read_bookmark_ref
-                                  , read_reference_ref
-                                  , read_frame
-                                  ] read_plain_text
-              ) -< blocks
-  anchor   <- getHeaderAnchor -< children
-  let idAttr = (anchor, [], []) -- no classes, no key-value pairs
-  arr (CombiningBlocks . uncurry3 headerWith) -< (idAttr, level, children)
+read_header      :: Matcher CombiningBlocks
+read_header       = matchingElement NsText "h" $ do
+  level    <- readAttrWithDefault NsText "outline-level" 1
+  children <- matchInlineContent
+  anchor   <- getHeaderAnchor children
+  -- with the styles extension, record any style other than the
+  -- standard one for the heading's level
+  mbCustom <- getCustomStyle (\name -> name == "Heading_20_" <> tshow level
+                                    || name == "Heading")
+  let idAttr = (anchor, [], maybe [] (\sty -> [("custom-style", sty)]) mbCustom)
+  return $ CombiningBlocks $ headerWith idAttr level children
 
 ----------------------
 -- Lists
 ----------------------
 
 --
-read_list        :: ElementMatcher CombiningBlocks
+read_list        :: Matcher CombiningBlocks
 read_list         = matchingElement NsText "list"
-                    $ liftA CombiningBlocks
-                    $ constructList
-                    $ matchChildContent' [ read_list_item
-                                         , read_list_header
-                                         ]
+                    $ CombiningBlocks
+                    <$> constructList
+                        ( matchContent' [ read_list_item
+                                        , read_list_header
+                                        ] )
 --
-read_list_item   :: ElementMatcher [Blocks]
+read_list_item   :: Matcher [Blocks]
 read_list_item    = read_list_element "list-item"
 
-read_list_header :: ElementMatcher [Blocks]
+read_list_header :: Matcher [Blocks]
 read_list_header  = read_list_element "list-header"
 
-read_list_element               :: ElementName -> ElementMatcher [Blocks]
+read_list_element               :: ElementName -> Matcher [Blocks]
 read_list_element listElement   = matchingElement NsText listElement
-                                  $ liftA (compactify.(:[]))
-                                    ( matchSmushedChildBlocks' [ read_paragraph
-                                                               , read_header
-                                                               , read_list
-                                                               , read_section
-                                                               ]
-                                    )
+                                  $ do
+                                    -- a new item restarts the numbering
+                                    -- of nested lists:
+                                    listLevel <- getCurrentListLevel
+                                    modifyExtraState
+                                      (resetDeeperListContinuationStartCounters
+                                        listLevel)
+                                    compactify . (:[]) <$> matchBlockContent
 
 ----------------------
 -- Sections
 ----------------------
 
-read_section :: ElementMatcher CombiningBlocks
+read_section :: Matcher CombiningBlocks
 read_section = matchingElement NsText "section"
-                 $ liftA (CombiningBlocks . divWith nullAttr)
-                 $ matchSmushedChildBlocks' [ read_paragraph
-                                            , read_header
-                                            , read_list
-                                            , read_table
-                                            , read_section
-                                            ]
+                 $ CombiningBlocks . divWith nullAttr
+                 <$> matchBlockContent
 
 
 ----------------------
@@ -760,19 +803,19 @@ read_section = matchingElement NsText "section"
 
 read_link        :: InlineMatcher
 read_link         = matchingElement NsText "a"
-                    $ liftA3 link
-                      ( findAttrTextWithDefault NsXLink  "href"  ""
-                        >>> arr fixRelativeLink                              )
-                      ( findAttrTextWithDefault NsOffice "title" ""          )
-                      ( matchChildContent [ read_span
-                                          , read_note
-                                          , read_citation
-                                          , read_bookmark
-                                          , read_bookmark_start
-                                          , read_reference_start
-                                          , read_bookmark_ref
-                                          , read_reference_ref
-                                          ] read_plain_text                  )
+                    $ link
+                      <$> (fixRelativeLink
+                             <$> findAttrWithDefault NsXLink  "href"  "")
+                      <*> findAttrWithDefault NsOffice "title" ""
+                      <*> matchContent [ read_span
+                                       , read_note
+                                       , read_citation
+                                       , read_bookmark
+                                       , read_bookmark_start
+                                       , read_reference_start
+                                       , read_bookmark_ref
+                                       , read_reference_ref
+                                       ] read_plain_text
 
 fixRelativeLink :: T.Text -> T.Text
 fixRelativeLink uri =
@@ -789,12 +832,10 @@ fixRelativeLink uri =
 
 read_note        :: InlineMatcher
 read_note         = matchingElement NsText "note"
-                    $ liftA note
-                    $ matchChildContent' [ read_note_body ]
+                    $ note <$> matchContent' [ read_note_body ]
 
 read_note_body   :: BlockMatcher
-read_note_body    = matchingElement NsText "note-body"
-                    $ matchSmushedChildBlocks' [ read_paragraph ]
+read_note_body    = matchingElement NsText "note-body" matchBlockContent
 
 -------------------------
 -- Citations
@@ -802,12 +843,11 @@ read_note_body    = matchingElement NsText "note-body"
 
 read_citation    :: InlineMatcher
 read_citation     = matchingElement NsText "bibliography-mark"
-                    $ liftA2 cite
-                      ( liftA2 makeCitation
-                        ( findAttrTextWithDefault NsText "identifier" "" )
-                        ( readAttrWithDefault NsText "number" 0          )
-                      )
-                      ( matchChildContent [] read_plain_text             )
+                    $ cite
+                      <$> ( makeCitation
+                              <$> findAttrWithDefault NsText "identifier" ""
+                              <*> readAttrWithDefault NsText "number" 0 )
+                      <*> matchContent [] read_plain_text
   where
    makeCitation :: T.Text -> Int -> [Citation]
    makeCitation citeId num = [Citation citeId [] [] NormalCitation num 0]
@@ -818,48 +858,85 @@ read_citation     = matchingElement NsText "bibliography-mark"
 ----------------------
 
 --
-read_table        :: ElementMatcher CombiningBlocks
+read_table        :: Matcher CombiningBlocks
 read_table         = matchingElement NsTable "table"
-                     $ liftA (CombiningBlocks . table')
-                     $ (matchChildContent' [read_table_header]) &&&
-                       (matchChildContent' [read_table_row])
+                     $ fmap (CombiningBlocks . table')
+                     $ (,) <$> matchContent' read_header_rows
+                           <*> matchContent' read_body_rows
 
 -- | A table without a caption.
 table' :: ([[Cell]], [[Cell]]) -> Blocks
-table' (headers, rows) =
-  table emptyCaption (replicate numcols defaults) th [tb] tf
+table' (headers, rows) = compactifyTable $
+    table emptyCaption (replicate numcols defaults) th [tb] tf
   where
     defaults = (AlignDefault, ColWidthDefault)
-    numcols = maximum $ map length $ headers ++ rows
+    -- A table element need not contain any rows, so guard against
+    -- taking the maximum of an empty list.
+    numcols = maybe 0 maximum $ nonEmpty $ map rowWidth $ headers ++ rows
+    -- A cell spanning several columns occupies all of them.
+    rowWidth = sum . map (\(Cell _ _ _ (ColSpan cs) _) -> cs)
     toRow = Row nullAttr
     th = TableHead nullAttr $ map toRow headers
     tb = TableBody nullAttr 0 [] $ map toRow rows
     tf = TableFoot nullAttr []
 
---
-read_table_header :: ElementMatcher [[Cell]]
-read_table_header = matchingElement NsTable "table-header-rows"
-                      $ matchChildContent' [ read_table_row
-                                           ]
+-- | Rows need not be immediate children of the table: ODF lets them be
+-- wrapped in any number of @table:table-row-group@ and @table:table-rows@
+-- elements, which only group them for the benefit of outlining and
+-- formatting. The children are walked twice, once picking up the rows that a
+-- @table:table-header-rows@ marks as headers and once the remaining ones.
+read_header_rows  :: [Matcher [[Cell]]]
+read_header_rows   = [ matchingElement NsTable "table-header-rows"
+                         $ matchContent' [ read_table_row ]
+                     , matchingElement NsTable "table-row-group"
+                         $ matchContent' read_header_rows
+                     ]
+
+read_body_rows    :: [Matcher [[Cell]]]
+read_body_rows     = [ read_table_row
+                     , matchingElement NsTable "table-rows"
+                         $ matchContent' [ read_table_row ]
+                     , matchingElement NsTable "table-row-group"
+                         $ matchContent' read_body_rows
+                     ]
+
+-- | ODF abbreviates a run of identical rows or cells with a repeat count.
+-- The counts are unbounded in the format -- spreadsheets pad out to the end
+-- of the sheet with them -- so a handful of bytes could otherwise ask for an
+-- arbitrarily large table. Bound both the width a single cell element stands
+-- for and the number of cells a single row element expands to; capping the
+-- two counts separately would not do, as they multiply.
+_MAX_COLUMNS_, _MAX_ROW_CELLS_ :: Int
+_MAX_COLUMNS_      = 1000
+_MAX_ROW_CELLS_    = 10000
+
+repeated          :: ElementName -> ODTReader Int
+repeated attrName  = max 1 <$> readAttrWithDefault NsTable attrName 1
 
 --
-read_table_row    :: ElementMatcher [[Cell]]
+read_table_row    :: Matcher [[Cell]]
 read_table_row     = matchingElement NsTable "table-row"
-                     $ liftA (:[])
-                     $ matchChildContent'  [ read_table_cell
-                                           ]
+                     $ row'
+                     <$> matchContent' [ read_table_cell
+                                       ]
+                     <*> repeated "number-rows-repeated"
+  where
+    row' cells repeat' =
+      replicate (max 1 $ min repeat'
+                       $ _MAX_ROW_CELLS_ `div` max 1 (length cells)) cells
 
 --
-read_table_cell   :: ElementMatcher [Cell]
+read_table_cell   :: Matcher [Cell]
 read_table_cell    = matchingElement NsTable "table-cell"
-                     $ liftA3 cell'
-                       (readAttrWithDefault NsTable "number-rows-spanned" 1 >>^ RowSpan)
-                       (readAttrWithDefault NsTable "number-columns-spanned" 1 >>^ ColSpan)
-                     $ matchSmushedChildBlocks' [ read_paragraph
-                                                , read_list
-                                                ]
+                     $ cell'
+                       <$> (RowSpan <$> readAttrWithDefault NsTable "number-rows-spanned" 1)
+                       <*> (ColSpan <$> readAttrWithDefault NsTable "number-columns-spanned" 1)
+                       <*> (min _MAX_COLUMNS_ <$> repeated "number-columns-repeated")
+                       <*> matchBlockContent
   where
-    cell' rowSpan colSpan blocks = map (cell AlignDefault rowSpan colSpan) $ compactify [blocks]
+    cell' rowSpan colSpan repeat' blocks =
+      concat $ replicate repeat'
+             $ map (cell AlignDefault rowSpan colSpan) (compactify [blocks])
 
 ----------------------
 -- Frames
@@ -867,39 +944,93 @@ read_table_cell    = matchingElement NsTable "table-cell"
 
 --
 read_frame :: InlineMatcher
-read_frame = matchingElement NsDraw "frame"
-             $ filterChildrenName' NsDraw (`elem` ["image", "object", "text-box"])
-           >>> foldS read_frame_child
-           >>> arr fold
+read_frame = matchingElement NsDraw "frame" $ do
+  children <- filterChildrenName' NsDraw (`elem` ["image", "object", "text-box"])
+  fold . mconcat <$> mapM read_frame_child children
 
-read_frame_child :: ODTReaderSafe XML.Element (FirstMatch Inlines)
-read_frame_child =
-  proc child -> case elName child of
-    "image"    -> read_frame_img      -< child
-    "object"   -> read_frame_mathml   -< child
-    "text-box" -> read_frame_text_box -< child
-    _          -> returnV mempty      -< ()
+read_frame_child :: XML.Element -> ODTReader (FirstMatch Inlines)
+read_frame_child child =
+  case elName child of
+    "image"    -> read_frame_img      child
+    "object"   -> read_frame_mathml   child
+    "text-box" -> read_frame_text_box child
+    _          -> return mempty
 
-read_frame_img :: ODTReaderSafe XML.Element (FirstMatch Inlines)
-read_frame_img =
-  proc img -> do
-    src <- executeIn (findAttr' NsXLink "href") -< img
-    case fold src of
-      ""   -> returnV mempty -< ()
-      src' -> do
-        let exts = extensionsFromList [Ext_auto_identifiers]
-            src'' = fixRelativeLink src'
-        resource   <- lookupResource                          -< T.unpack src''
-        _          <- updateMediaWithResource                 -< resource
-        w          <- findAttrText' NsSVG "width"             -< ()
-        h          <- findAttrText' NsSVG "height"            -< ()
-        titleNodes <- matchChildContent' [ read_frame_title ] -< ()
-        alt        <- matchChildContent [] read_plain_text    -< ()
-        arr (firstMatch . uncurry4 imageWith)                 -<
-          (image_attributes w h, src'', inlineListToIdentifier exts (toList titleNodes), alt)
+read_frame_img :: XML.Element -> ODTReader (FirstMatch Inlines)
+read_frame_img img = do
+  mbSrc <- executeIn img resolveImageSrc
+  case mbSrc of
+    Nothing  -> return mempty
+    Just src -> do
+      -- note: the remaining attributes are read in the context of the
+      -- enclosing draw:frame, not of the draw:image
+      let exts = extensionsFromList [Ext_auto_identifiers]
+      w          <- findAttr' NsSVG "width"
+      h          <- findAttr' NsSVG "height"
+      titleNodes <- matchContent' [ read_frame_title ]
+      -- trimmed because a pretty-printed file indents the children of
+      -- the frame, and that whitespace is not alt text
+      alt        <- trimInlines <$> matchContent [] read_plain_text
+      return $ firstMatch
+             $ imageWith (image_attributes w h) src
+                         (inlineListToIdentifier exts (toList titleNodes))
+                         alt
+
+-- | Determine the media bag path of the image of the current
+-- @draw:image@ element.  The image data is either in another file of the
+-- archive, referenced by @xlink:href@, or embedded in the element as
+-- base64 in an @office:binary-data@ child (which is how a flat
+-- OpenDocument file must carry it).
+resolveImageSrc :: ODTReader (Maybe T.Text)
+resolveImageSrc = do
+  href <- fold <$> findAttr' NsXLink "href"
+  if not (T.null href)
+     then do
+       let src = fixRelativeLink href
+       -- The archive need not actually contain the referenced file; if it
+       -- does not, leave the media bag alone and just emit the link.
+       mapM_ (updateMediaWithResource . (,) (T.unpack src))
+         =<< lookupResource (T.unpack src)
+       return (Just src)
+     else do
+       drawImage <- getCurrentElement
+       findChild' NsOffice "binary-data"
+         >>= traverse (embedBase64Image drawImage)
+
+-- | Add the base64-encoded image data of an @office:binary-data@ element
+-- to the media bag and return the path under which it was filed.  The
+-- mime type is declared on the enclosing @draw:image@.
+embedBase64Image :: XML.Element -> XML.Element -> ODTReader T.Text
+embedBase64Image drawImage binaryData = do
+  let bytes = decodeLenient . UTF8.fromText
+            . T.filter (not . isSpace) . XML.strContent $ binaryData
+  -- the attribute is draw:mime-type in ODF 1.3 but loext:mime-type in
+  -- older LibreOffice output, so match on the local name only
+  let mbExtension =
+        ((("." <>) <$>) . extensionFromMimeType
+          =<< XML.findAttrBy ((== "mime-type") . XML.qName) drawImage)
+        <|> (extensionForImageType <$> imageType bytes)
+  n <- length . mediaItems . getMediaBag <$> getExtraState
+  let path = "Pictures/image" <> show (n + 1) <> T.unpack (fromMaybe ".bin" mbExtension)
+  updateMediaWithResource (path, B.fromStrict bytes)
+  return (T.pack path)
+
+extensionForImageType :: ImageType -> T.Text
+extensionForImageType imgType =
+  case imgType of
+    Png  -> ".png"
+    Jpeg -> ".jpeg"
+    Gif  -> ".gif"
+    Pdf  -> ".pdf"
+    Eps  -> ".eps"
+    Svg  -> ".svg"
+    Emf  -> ".emf"
+    Tiff -> ".tiff"
+    Webp -> ".webp"
+    Avif -> ".avif"
 
 read_frame_title :: InlineMatcher
-read_frame_title = matchingElement NsSVG "title" (matchChildContent [] read_plain_text)
+read_frame_title = matchingElement NsSVG "title" (matchContent [] read_plain_text)
 
 image_attributes :: Maybe T.Text -> Maybe T.Text -> Attr
 image_attributes x y =
@@ -909,24 +1040,49 @@ image_attributes x y =
     dim name (Just v) = [(name, v)]
     dim _ Nothing     = []
 
-read_frame_mathml :: ODTReaderSafe XML.Element (FirstMatch Inlines)
-read_frame_mathml =
-  proc obj -> do
-    src <- executeIn (findAttr' NsXLink "href") -< obj
-    case fold src of
-      ""   -> returnV mempty -< ()
-      src' -> do
-        let path = T.unpack $
-                    fromMaybe src' (T.stripPrefix "./" src') <> "/content.xml"
-        (_, mathml) <- lookupResource -< path
-        case readMathML (UTF8.toText $ B.toStrict mathml) of
-          Left _     -> returnV mempty -< ()
-          Right exps -> arr (firstMatch . displayMath . writeTeX) -< exps
+read_frame_mathml :: XML.Element -> ODTReader (FirstMatch Inlines)
+read_frame_mathml obj = do
+  href <- fold <$> executeIn obj (findAttr' NsXLink "href")
+  mbMathML <-
+    if T.null href
+       then -- a flat OpenDocument file has to embed the formula in the
+            -- draw:object itself
+            return $ XML.showElement . addMathMLNamespace <$> findMathML obj
+       else do
+         -- note that pandoc's own odt writer uses a trailing slash
+         let dir = T.dropWhileEnd (== '/') $
+                     fromMaybe href (T.stripPrefix "./" href)
+         fmap (UTF8.toText . B.toStrict) <$>
+           lookupResource (T.unpack (dir <> "/content.xml"))
+  case readMathML <$> mbMathML of
+    Just (Right exps) -> return $ firstMatch $ displayMath $ writeTeX exps
+    _                 -> return mempty
 
-read_frame_text_box :: ODTReaderSafe XML.Element (FirstMatch Inlines)
-read_frame_text_box = proc box -> do
-    paragraphs <- executeIn (matchSmushedChildBlocks' [ read_paragraph ]) -< box
-    arr read_img_with_caption -< toList paragraphs
+-- | Find the MathML of a formula embedded in a @draw:object@.  It is
+-- searched for as a descendant, not as a direct child, because the
+-- @math@ element may be wrapped in an @office:document@ element
+-- describing an embedded formula document.
+findMathML :: XML.Element -> Maybe XML.Element
+findMathML = XML.filterElementName ((== "math") . XML.qName)
+
+-- | XML.Light carries namespace prefixes literally and does not
+-- synthesise declarations, so the declaration of the MathML namespace
+-- may have been left behind on the root of the flat file.
+addMathMLNamespace :: XML.Element -> XML.Element
+addMathMLNamespace el =
+  el{ XML.elAttribs =
+        XML.Attr (XML.QName "xmlns" Nothing Nothing)
+                 "http://www.w3.org/1998/Math/MathML"
+        : filter (not . isDefaultNS . XML.attrKey) (XML.elAttribs el) }
+ where
+  isDefaultNS qn = XML.qName qn == "xmlns" && isNothing (XML.qPrefix qn)
+
+read_frame_text_box :: XML.Element -> ODTReader (FirstMatch Inlines)
+read_frame_text_box box = do
+  -- caption paragraphs must not be wrapped in Divs (see
+  -- 'read_img_with_caption')
+  paragraphs <- executeIn box (matchSmushedChildBlocks' [ read_paragraph' False ])
+  return $ read_img_with_caption $ toList paragraphs
 
 read_img_with_caption :: [Block] -> FirstMatch Inlines
 read_img_with_caption (Para [Image attr alt (src,title)] : _) =
@@ -946,26 +1102,20 @@ _ANCHOR_PREFIX_ :: T.Text
 _ANCHOR_PREFIX_ = "anchor"
 
 --
-readAnchorAttr :: ODTReader a Anchor
-readAnchorAttr = findAttrText NsText "name"
+readAnchorAttr :: ODTReader Anchor
+readAnchorAttr = findAttr NsText "name"
 
 -- | Beware: may fail
-findAnchorName :: ODTReader AnchorPrefix Anchor
-findAnchorName = (      keepingTheValue readAnchorAttr
-                   >>^  spreadChoice
-                 ) >>?! getPrettyAnchor
-
+findAnchorName :: AnchorPrefix -> ODTReader Anchor
+findAnchorName anchorPrefix = do
+  uglyAnchor <- readAnchorAttr
+  getPrettyAnchor anchorPrefix uglyAnchor
 
 --
-maybeAddAnchorFrom :: ODTReader Inlines AnchorPrefix
-                   -> ODTReaderSafe Inlines Inlines
+maybeAddAnchorFrom :: ODTReader AnchorPrefix -> ODTReader Inlines
 maybeAddAnchorFrom anchorReader =
-  keepingTheValue (anchorReader >>? findAnchorName >>?^ toAnchorElem)
-  >>>
-  proc (inlines, fAnchorElem) -> do
-  case fAnchorElem of
-    Right anchorElem -> returnA -< anchorElem
-    Left _           -> returnA -< inlines
+      (toAnchorElem <$> (anchorReader >>= findAnchorName))
+  <|> return mempty
   where
     toAnchorElem :: Anchor -> Inlines
     toAnchorElem anchorID = spanWith (anchorID, [], []) mempty
@@ -974,12 +1124,12 @@ maybeAddAnchorFrom anchorReader =
 --
 read_bookmark     :: InlineMatcher
 read_bookmark      = matchingElement NsText "bookmark"
-                     $ maybeAddAnchorFrom (liftAsSuccess $ returnV _ANCHOR_PREFIX_)
+                     $ maybeAddAnchorFrom (return _ANCHOR_PREFIX_)
 
 --
 read_bookmark_start :: InlineMatcher
 read_bookmark_start = matchingElement NsText "bookmark-start"
-                     $ maybeAddAnchorFrom (liftAsSuccess $ returnV _ANCHOR_PREFIX_)
+                     $ maybeAddAnchorFrom (return _ANCHOR_PREFIX_)
 
 --
 read_reference_start :: InlineMatcher
@@ -987,20 +1137,18 @@ read_reference_start = matchingElement NsText "reference-mark-start"
                      $ maybeAddAnchorFrom readAnchorAttr
 
 -- | Beware: may fail
-findAnchorRef :: ODTReader a Anchor
-findAnchorRef = (      findAttrText NsText "ref-name"
-                  >>?^ (_ANCHOR_PREFIX_,)
-                ) >>?! getPrettyAnchor
-
+findAnchorRef :: ODTReader Anchor
+findAnchorRef = do
+  uglyAnchor <- findAttr NsText "ref-name"
+  getPrettyAnchor _ANCHOR_PREFIX_ uglyAnchor
 
 --
-maybeInAnchorRef :: ODTReaderSafe Inlines Inlines
-maybeInAnchorRef = proc inlines -> do
-  fRef <- findAnchorRef -< ()
+maybeInAnchorRef :: Inlines -> ODTReader Inlines
+maybeInAnchorRef inlines = do
+  fRef <- tryC findAnchorRef
   case fRef of
-    Right anchor ->
-      arr (toAnchorRef anchor) -<< inlines
-    Left _ -> returnA -< inlines
+    Right anchor -> return $ toAnchorRef anchor inlines
+    Left _       -> return inlines
   where
     toAnchorRef :: Anchor -> Inlines -> Inlines
     toAnchorRef anchor = link ("#" <> anchor) "" -- no title
@@ -1008,43 +1156,51 @@ maybeInAnchorRef = proc inlines -> do
 --
 read_bookmark_ref :: InlineMatcher
 read_bookmark_ref = matchingElement NsText "bookmark-ref"
-                    $    maybeInAnchorRef
-                     <<< matchChildContent [] read_plain_text
+                    $ matchContent [] read_plain_text >>= maybeInAnchorRef
 
 --
 read_reference_ref :: InlineMatcher
 read_reference_ref = matchingElement NsText "reference-ref"
-                    $    maybeInAnchorRef
-                     <<< matchChildContent [] read_plain_text
+                    $ matchContent [] read_plain_text >>= maybeInAnchorRef
 
 
 ----------------------
 -- Entry point
 ----------------------
 
-read_text :: ODTReaderSafe a Pandoc
-read_text = matchSmushedChildBlocks' [ read_header
-                                     , read_paragraph
-                                     , read_list
-                                     , read_section
-                                     , read_table
-                                     ]
-            >>^ doc
+read_text :: ODTReader Pandoc
+read_text = doc <$> matchBlockContent
 
 post_process :: Pandoc -> Pandoc
-post_process (Pandoc m blocks) =
-  Pandoc m (post_process' blocks)
+post_process = walk (unwrapCaptions . attachCaptions)
 
-post_process' :: [Block] -> [Block]
-post_process' (Table attr _ specs th tb tf : Div ("", ["caption"], _) blks : xs)
-  = Table attr (Caption Nothing blks) specs th tb tf : post_process' xs
-post_process' bs = bs
+-- | Paragraphs styled as table captions are read as a Div with class
+-- @caption@ (see 'constructPara'). Attach each of them to the adjacent
+-- table; ODF puts the caption either before or after its table.
+attachCaptions :: [Block] -> [Block]
+attachCaptions (Table attr _ specs th tb tf : b : xs)
+  | Just blks <- captionBlocks b
+  = Table attr (Caption Nothing blks) specs th tb tf : attachCaptions xs
+attachCaptions (b : Table attr _ specs th tb tf : xs)
+  | Just blks <- captionBlocks b
+  = Table attr (Caption Nothing blks) specs th tb tf : attachCaptions xs
+attachCaptions (b : bs) = b : attachCaptions bs
+attachCaptions []       = []
 
-read_body :: ODTReader a (Pandoc, MediaBag)
+-- | The Div is only an internal marker, so a caption paragraph that
+-- turned out not to belong to a table is emitted as an ordinary
+-- paragraph rather than leaking the marker into the output.
+unwrapCaptions :: [Block] -> [Block]
+unwrapCaptions = concatMap (\b -> fromMaybe [b] (captionBlocks b))
+
+captionBlocks :: Block -> Maybe [Block]
+captionBlocks (Div ("", ["caption"], _) blks) = Just blks
+captionBlocks _                               = Nothing
+
+read_body :: ODTReader (Pandoc, MediaBag)
 read_body = executeInSub NsOffice "body"
           $ executeInSub NsOffice "text"
-          $ liftAsSuccess
-          $ proc inlines -> do
-             txt   <- read_text     -< inlines
-             state <- getExtraState -< ()
-             returnA                -< (post_process txt, getMediaBag state)
+          $ do
+             txt   <- read_text
+             state <- getExtraState
+             return (post_process txt, getMediaBag state)

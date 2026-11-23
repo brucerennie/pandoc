@@ -133,7 +133,9 @@ anyText :: PandocMonad m => Lexer m T.Text
 anyText = escape <|> regularText <|> quoteChar <|> spaceTabChar
 
 regularText :: PandocMonad m => Lexer m T.Text
-regularText = many1Char $ noneOf "\n\r\t \\\""
+regularText = takeWhile1P (\c -> not (c == '\n' || c == '\r' ||
+                                      c == '\t' || c == ' ' ||
+                                      c == '\\' || c == '"'))
 
 quoteChar :: PandocMonad m => Lexer m T.Text
 quoteChar = T.singleton <$> char '"'
@@ -142,7 +144,7 @@ mdocToken :: PandocMonad m => Lexer m MdocTokens
 mdocToken = lexComment <|> lexControlLine <|> lexTextLine
 
 lexMacroName :: PandocMonad m => Lexer m T.Text
-lexMacroName = many1Char (satisfy isMacroChar)
+lexMacroName = takeWhile1P isMacroChar
   where
     isMacroChar '%' = True
     isMacroChar x = isAlphaNum x

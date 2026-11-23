@@ -1,6 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE CPP                 #-}
 {-# LANGUAGE DeriveGeneric       #-}
 {-# LANGUAGE PatternSynonyms     #-}
 {-# LANGUAGE TemplateHaskell     #-}
@@ -20,14 +19,20 @@ Options for pandoc when used as an app.
 module Text.Pandoc.App.Opt (
             Opt(..)
           , OptInfo(..)
+          , CompletionShell(..)
           , LineEnding (..)
           , IpynbOutput (..)
           , DefaultsState (..)
           , defaultOpts
           , applyDefaults
           , fullDefaultsPath
+          , CompletionKind(..)
+          , OptionSpec(..)
+          , toOptDescr
+          , option
           ) where
-import Control.Monad.Except (throwError)
+import System.Console.GetOpt (OptDescr (..), ArgDescr (..))
+import Control.Monad.Except (ExceptT, throwError)
 import Control.Monad.Trans (MonadIO, liftIO, lift)
 import Control.Monad ((>=>), foldM)
 import Control.Monad.State.Strict (StateT, modify, gets)
@@ -40,14 +45,15 @@ import Text.Pandoc.Filter (Filter (..))
 import Text.Pandoc.Logging (Verbosity (WARNING), LogMessage(..))
 import Text.Pandoc.Options (TopLevelDivision (TopLevelDefault),
                             TrackChanges (AcceptChanges),
-                            WrapOption (WrapAuto), HTMLMathMethod (PlainMath),
+                            WrapOption (WrapAuto), MathMethod (MathML),
                             ReferenceLocation (EndOfDocument),
                             CaptionPosition (..),
                             ObfuscationMethod (NoObfuscation),
                             CiteMethod (Citeproc),
                             pattern DefaultHighlightingString)
 import Text.Pandoc.Class (readFileStrict, fileExists, setVerbosity, report,
-                          PandocMonad(lookupEnv), getUserDataDir)
+                          PandocMonad(lookupEnv), getUserDataDir,
+                          getPandocDataDirs)
 import Text.Pandoc.Error (PandocError (PandocParseError, PandocSomeError))
 import Data.Containers.ListUtils (nubOrd)
 import Text.Pandoc.Data (defaultUserDataDir)
@@ -61,11 +67,15 @@ import qualified Data.Text as T
 import qualified Data.Map as M
 import qualified Data.ByteString.Char8 as B8
 import Text.Pandoc.Definition (Meta(..), MetaValue(..))
-import Data.Aeson (defaultOptions, Options(..), Result(..),
-                   genericToJSON, fromJSON, camelTo2, eitherDecodeStrict)
 import Data.Aeson.TH (deriveJSON)
 import Control.Applicative ((<|>))
-import Data.Yaml
+import Data.Aeson
+import Data.Aeson.Types
+import qualified Data.Aeson.Key as K
+import qualified Data.List as L
+import qualified Data.List.NonEmpty as NE
+import qualified Yamlet as Y
+import Yamlet.Aeson
 
 -- | The type of line-endings to be used when writing plain-text.
 data LineEnding = LF | CRLF | Native deriving (Show, Generic)
@@ -85,9 +95,58 @@ data IpynbOutput =
 $(deriveJSON
    defaultOptions{ fieldLabelModifier = map toLower . drop 11 } ''IpynbOutput)
 
+-- | The shell for which a completion script is requested.
+data CompletionShell = Bash | Zsh | Fish
+  deriving (Show, Generic)
+
+-- | What kind of value an option expects, and hence how it should be
+-- completed in zsh/fish/bash.
+data CompletionKind
+  = OptFlag          -- ^ a boolean flag, no value
+  | InputFormats     -- ^ an input (reader) format
+  | OutputFormats    -- ^ an output (writer) format
+  | HighlightStyles  -- ^ a highlighting style
+  | MathMethods      -- ^ an html math method
+  | DataFiles        -- ^ a pandoc data file
+  | Engines          -- ^ a PDF engine program
+  | Files            -- ^ a file path
+  | Fixed [String]   -- ^ one of a fixed set of values
+  deriving (Show)
+
+-- | The single source of truth for a command-line option: its short and
+-- long names, its argument parser, and the metadata needed to generate
+-- shell completions.  Everything else (option parsing, usage messages,
+-- and completion scripts) is derived from this one structure, so an
+-- option is declared in exactly one place.
+data OptionSpec = OptionSpec
+  { optShorts     :: [Char]
+  , optLongs      :: [String]
+  , optArgument   :: ArgDescr (Opt -> ExceptT OptInfo IO Opt)
+  , optCompletion :: CompletionKind
+  , optCompDesc   :: Text
+  }
+
+-- | Convert an 'OptionSpec' into the 'OptDescr' that GetOpt consumes.
+-- The GetOpt usage description is left empty (the help text is
+-- documented in the manual, not the --help summary).
+toOptDescr :: OptionSpec -> OptDescr (Opt -> ExceptT OptInfo IO Opt)
+toOptDescr (OptionSpec shorts longs arg _ _) =
+  Option shorts longs arg ""
+
+-- | Smart constructor for an 'OptionSpec'.  The completion kind and
+-- description are supplied alongside the rest of the option, so the
+-- single declaration fully describes both parsing and completion.
+option :: [Char]
+       -> [String]
+       -> ArgDescr (Opt -> ExceptT OptInfo IO Opt)
+       -> CompletionKind
+       -> Text
+       -> OptionSpec
+option = OptionSpec
+
 -- | Option parser results requesting informational output.
 data OptInfo =
-     BashCompletion
+     Completion CompletionShell
    | ListInputFormats
    | ListOutputFormats
    | ListExtensions (Maybe Text)
@@ -129,7 +188,7 @@ data Opt = Opt
     , optSyntaxDefinitions     :: [FilePath]  -- ^ xml syntax defs to load
     , optSyntaxHighlighting    :: Text -- ^ Syntax highlighting method for code
     , optTopLevelDivision      :: TopLevelDivision -- ^ Type of the top-level divisions
-    , optHTMLMathMethod        :: HTMLMathMethod -- ^ Method to print HTML math
+    , optMathMethod            :: MathMethod -- ^ Method to print HTML math
     , optAbbreviations         :: Maybe FilePath -- ^ Path to abbrevs file
     , optReferenceDoc          :: Maybe FilePath -- ^ Path of reference doc
     , optSplitLevel            :: Int     -- ^ Header level at which to split documents in epub and chunkedhtml
@@ -216,7 +275,8 @@ instance FromJSON Opt where
        <*> o .:? "syntax-definitions" .!= optSyntaxDefinitions defaultOpts
        <*> o .:? "syntax-highlighting" .!= optSyntaxHighlighting defaultOpts
        <*> o .:? "top-level-division" .!= optTopLevelDivision defaultOpts
-       <*> o .:? "html-math-method" .!= optHTMLMathMethod defaultOpts
+       <*> ((o .: "math-method") <|> (o .: "html-math-method") <|>
+              pure (optMathMethod defaultOpts))
        <*> o .:? "abbreviations"
        <*> o .:? "reference-doc"
        <*> ((o .:? "split-level") <|> (o .:? "epub-chapter-level"))
@@ -301,11 +361,11 @@ instance (PandocMonad m, MonadIO m)
       Success (opts :: M.Map Text Value) -> do
         dataDir <- case M.lookup "data-dir" opts of
           Nothing -> return Nothing
-          Just v -> Just . unpack <$> parseJSON v
+          Just v -> Just . unpack <$> parseJSON v <?> Key "data-dir"
         f <- parseOptions (M.toList opts)
         case M.lookup "defaults" opts of
           Just v -> do
-            g <- parseDefaults v dataDir
+            g <- parseDefaults v dataDir <?> Key "defaults"
             return  $ g >=> f >=> resolveVarsInOpt
           Nothing -> return $ f >=> resolveVarsInOpt
   parseJSON _ = fail "Expected a mapping"
@@ -485,7 +545,7 @@ doOpt' (k,v) = do
     _ -> doOpt (k,v)
 
 doOpt :: (Text, Value) -> Parser (Opt -> Opt)
-doOpt (k,v) = do
+doOpt (k,v) = (<?> Key (K.fromText k)) $ do
   case k of
     "tab-stop" ->
       parseJSON v >>= \x -> return (\o -> o{ optTabStop = x })
@@ -587,8 +647,10 @@ doOpt (k,v) = do
       parseJSON v >>= \x -> return (\o -> o{ optSyntaxHighlighting = x })
     "top-level-division" ->
       parseJSON v >>= \x -> return (\o -> o{ optTopLevelDivision = x })
+    "math-method" ->
+      parseJSON v >>= \x -> return (\o -> o{ optMathMethod = x })
     "html-math-method" ->
-      parseJSON v >>= \x -> return (\o -> o{ optHTMLMathMethod = x })
+      parseJSON v >>= \x -> return (\o -> o{ optMathMethod = x })
     "abbreviations" ->
       parseJSON v >>= \x ->
              return (\o -> o{ optAbbreviations = unpack <$> x })
@@ -795,7 +857,7 @@ defaultOpts = Opt
     , optSyntaxDefinitions     = []
     , optSyntaxHighlighting    = DefaultHighlightingString
     , optTopLevelDivision      = TopLevelDefault
-    , optHTMLMathMethod        = PlainMath
+    , optMathMethod            = MathML
     , optAbbreviations         = Nothing
     , optReferenceDoc          = Nothing
     , optSplitLevel            = 1
@@ -880,11 +942,11 @@ applyDefaults opt file = do
          Left err' -> throwError $ PandocParseError $ T.pack $
             "Error parsing " <> file <> ":\n" <> err'
      else
-       case decodeEither' (B8.unlines . takeWhile (/= "...") . B8.lines $ inp) of
-           Right f -> f opt
-           Left err'  -> throwError $ PandocParseError $ T.pack $
+       case Y.decode (B8.unlines . takeWhile (/= "...") . B8.lines $ inp) of
+           Right (ViaAeson f) -> f opt
+           Left errs  -> throwError $ PandocParseError $ T.pack $
                   "Error parsing " <> file <> ":\n" <>
-                  Data.Yaml.prettyPrintParseException err'
+                  L.intercalate "\n" (map (Y.prettyError file) (NE.toList errs))
 
 fullDefaultsPath :: (PandocMonad m, MonadIO m)
                  => Maybe FilePath
@@ -892,17 +954,16 @@ fullDefaultsPath :: (PandocMonad m, MonadIO m)
                  -> m FilePath
 fullDefaultsPath dataDir file = do
   defaultDataDir <- liftIO defaultUserDataDir
-  let ddir = fromMaybe defaultDataDir dataDir </> "defaults"
+  pandocDataDirs <- getPandocDataDirs
+  let ddirs = map (</> "defaults") (fromMaybe defaultDataDir dataDir : pandocDataDirs)
   let findFile [] = return file
       findFile (fp:fps) = do
         fpExists <- fileExists fp
         if fpExists
            then return fp
            else findFile fps
-  findFile [file,
-            file <.> "yaml",
-            ddir </> file,
-            ddir </> file <.> "yaml"]
+  findFile $ [file, file <.> "yaml"] ++
+             concatMap (\ddir -> [ddir </> file, ddir </> file <.> "yaml"]) ddirs
 
 -- | In a list of lists, append another list in front of every list which
 -- starts with specific element.

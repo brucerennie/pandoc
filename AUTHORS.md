@@ -6,6 +6,7 @@
 - Agustín Martín Barbero
 - Akash Patel
 - Akos Marton
+- Alain Lesage
 - Albert Krewinkel
 - Albert Lei
 - Alex Ivkin
@@ -25,9 +26,11 @@
 - Amy de Buitléir
 - Anabra
 - Anders Waldenborg
+- Andonome
 - Andreas Deininger
 - Andreas Lööw
 - Andreas Scherer
+- Andrzej Rybczak
 - Andres Freund
 - Andrew Dunning
 - Andy Morris
@@ -43,7 +46,9 @@
 - Arlo O'Keeffe
 - Artem Pelenitsyn
 - Artyom Kazak
+- Aslak Hellesøy
 - Asliddinbek Azizovich
+- Asuka
 - B. Scott Michel
 - Bastien Dumont
 - Ben Firshman
@@ -62,6 +67,7 @@
 - Brent Yorgey
 - Brian Leung
 - Bryan O'Sullivan
+- Caio Vinícius
 - Caleb McDaniel
 - Caleb Mclennan
 - Calvin Beck
@@ -87,6 +93,7 @@
 - Christoffer Sawicki
 - Christophe Dervieux
 - Christopher Kenny
+- Clar Fon
 - Clare Macrae
 - Clint Adams
 - Conal Elliott
@@ -125,6 +132,7 @@
 - Eric Kow
 - Eric Schrijver
 - Eric Seidel
+- Erik Demaine
 - Erik Post
 - Erik Rask
 - Ethan Riley
@@ -151,6 +159,7 @@
 - Fyodor Sheremetyev
 - Gabor Pali
 - Gabriel Lewertowski
+- Gaurav Vijay Jadhav
 - Gavin Beatty
 - George Stagg
 - Georgi Lyubenov
@@ -212,6 +221,7 @@
 - Jens Oehlschlägel
 - Jesse Hathaway
 - Jeremie Knuesel
+- Jeremy Levartovsky
 - Jérémy Bobbio
 - Jeroen de Haas
 - Jerry Sky
@@ -250,6 +260,7 @@
 - Konstantin Zudov
 - Kristof Bastiaensen
 - Krystof Beuermann
+- Kyohei Takahashi
 - Lars-Dominik Braun
 - Laurent P. René de Cotret
 - Lawrence Chonavel
@@ -311,6 +322,7 @@
 - Mohamed Akram
 - Morgan Willcock
 - Morton Fox
+- Nacho García
 - Nathan Gass
 - Naveen
 - Neil Mayhew
@@ -339,6 +351,7 @@
 - Owen McGrath
 - Pablo Rodríguez
 - Pascal Wagler
+- Patrick Creighton
 - Pau RE
 - Paul Rivier
 - Paul Tilley
@@ -351,6 +364,7 @@
 - Peter Wang
 - Philip Pesca
 - Philippe Ombredanne
+- Philipp Gillé
 - Phillip Alday
 - Pranesh Prakash
 - Prat
@@ -358,6 +372,7 @@
 - Puneeth Chaganti
 - Quinn
 - R. N. West
+- Raffaele Mancuso
 - Ralf Stephan
 - Raniere Silva
 - Raymond Berger
@@ -365,6 +380,7 @@
 - Recai Oktaş
 - Repetitive
 - Reuben Thomas
+- Robert Szarka
 - Robertas
 - Rowan Rodrik van der Molen
 - Roland Hieber
@@ -377,6 +393,7 @@
 - Salim B
 - Sam S. Almahri
 - Sam May
+- Samuel Huang
 - Samuel Tardieu
 - Saumel Lemmenmeier
 - Santiago Zarate
@@ -456,7 +473,9 @@
 - William Lupton
 - William Rusnack
 - Winnie Hellmann
+- Wleeaf
 - Wout Gevaert
+- Wrong-Code
 - Xavier Olive
 - Yan Pashkovsky
 - Yann Trividic
@@ -465,6 +484,7 @@
 - Yoan Blanc
 - You Jiangbin
 - Yuchen Pei
+- Yusuf Efe
 - Zihang Chen
 - 3w36zj6
 - arcnmx
@@ -484,8 +504,10 @@
 - dbecher-ito
 - ebiim
 - ech0
+- enieuwy
 - etclub
 - favonia
+- gemmaro
 - guqicun
 - har7an
 - harabat
@@ -493,6 +515,7 @@
 - infinity0x
 - jeongminkim-islab
 - josch
+- k6G52m4Dz75W
 - kaizshang91
 - lawcho
 - lifeunleaded
@@ -520,6 +543,7 @@
 - priiduonu
 - qerub
 - quasicomputational
+- rca-umb
 - reptee
 - ricnorr
 - robabla
@@ -538,10 +562,13 @@
 - thsutton
 - thron7
 - timo-a
+- tyler000000
 - vijayphoenix
 - vkraven
 - wgevaert
 - wiefling
 - willj-dev
 - wuffi
+- wzy
+- zenor0
 - λx.x

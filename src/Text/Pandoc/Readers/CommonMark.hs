@@ -79,12 +79,12 @@ makeFigures (Para [Image (ident,classes,kvs) alt (src,tit)])
 makeFigures b = b
 
 sourceToToks :: (SourcePos, Text) -> [Tok]
-sourceToToks (pos, s) = map adjust $ tokenize (sourceName pos) s
+sourceToToks (pos, s) =
+  case sourceLine pos of
+    1 -> toks
+    n -> map (\tok -> tok{ tokPos = incSourceLine (tokPos tok) (n - 1) }) toks
  where
-   adjust = case sourceLine pos of
-              1 -> id
-              n -> \tok -> tok{ tokPos =
-                                  incSourceLine (tokPos tok) (n - 1) }
+   toks = tokenize (sourceName pos) s
 
 
 metaValueParser :: Monad m
@@ -102,7 +102,7 @@ readCommonMarkBody opts s toks =
       then walk makeFigures
       else id) .
   (if isEnabled Ext_tex_math_gfm opts
-      then walk handleGfmMath
+      then walk handleGfmMathBlock . walk handleGfmMathInline
       else id) .
   (if readerStripComments opts
       then walk stripBlockComments . walk stripInlineComments
@@ -115,9 +115,9 @@ readCommonMarkBody opts s toks =
             Left err -> throwError $ fromParsecError s err
             Right (Cm bls :: Cm () Blocks) -> return $ B.doc bls
 
-handleGfmMath :: Block -> Block
-handleGfmMath (CodeBlock ("",["math"],[]) raw) = Para [Math DisplayMath raw]
-handleGfmMath x = walk handleGfmMathInline x
+handleGfmMathBlock :: Block -> Block
+handleGfmMathBlock (CodeBlock ("",["math"],[]) raw) = Para [Math DisplayMath raw]
+handleGfmMathBlock x = x
 
 handleGfmMathInline :: Inline -> Inline
 handleGfmMathInline (Math InlineMath math'') =
@@ -167,6 +167,8 @@ specFor opts = foldr ($) defaultSyntaxSpec exts
          [ (superscriptSpec <>) | isEnabled Ext_superscript opts ] ++
          [ (subscriptSpec <>) | isEnabled Ext_subscript opts ] ++
          [ (mathSpec <>) | isEnabled Ext_tex_math_dollars opts ] ++
+         [ (taskListSpec <>) | isEnabled Ext_task_lists opts ] ++
+         -- note: task_list before fancy_list, work around jgm/commonmark#180
          [ (fancyListSpec <>) | isEnabled Ext_fancy_lists opts ] ++
          [ (fencedDivSpec <>) | isEnabled Ext_fenced_divs opts ] ++
          [ (bracketedSpanSpec <>) | isEnabled Ext_bracketed_spans opts ] ++
@@ -187,7 +189,6 @@ specFor opts = foldr ($) defaultSyntaxSpec exts
            | isEnabled Ext_implicit_header_references opts ] ++
          [ (footnoteSpec <>) | isEnabled Ext_footnotes opts ] ++
          [ (definitionListSpec <>) | isEnabled Ext_definition_lists opts ] ++
-         [ (taskListSpec <>) | isEnabled Ext_task_lists opts ] ++
          [ (wikilinksSpec TitleAfterPipe <>)
            | isEnabled Ext_wikilinks_title_after_pipe opts ] ++
          [ (wikilinksSpec TitleBeforePipe <>)

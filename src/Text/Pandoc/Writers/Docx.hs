@@ -23,6 +23,7 @@ import Codec.Archive.Zip
       findEntryByPath,
       fromArchive,
       toArchive,
+      toArchiveOrFail,
       toEntry,
       Entry(eRelativePath) )
 import Control.Monad (MonadPlus(mplus), foldM)
@@ -98,6 +99,7 @@ writeDocx opts doc = do
 
   let env = defaultWriterEnv {
           envRTL = isRTLmeta
+        , envLang = getLang opts meta
         , envChangesAuthor = fromMaybe "unknown" username
         , envChangesDate   = T.pack $ formatTime defaultTimeLocale "%FT%XZ" utctime
         , envPrintWidth = maybe 420 (`quot` 20) pgContentWidth
@@ -499,16 +501,24 @@ loadArchives :: PandocMonad m
 loadArchives opts = do
   username <- P.lookupEnv "USERNAME"
   utctime <- P.getTimestamp
-  oldUserDataDir <- P.getUserDataDir
-  P.setUserDataDir Nothing
   res <- readDefaultDataFile "reference.docx"
-  P.setUserDataDir oldUserDataDir
   let distArchive = toArchive $ BL.fromStrict res
   refArchive <- case writerReferenceDoc opts of
-                   Just f  -> toArchive . BL.fromStrict . fst
+                   Just f  -> do
+                     arch <- toArchiveOrFail . BL.fromStrict . fst
                                  <$> P.fetchItem (T.pack f)
-                   Nothing -> toArchive . BL.fromStrict <$>
-                        readDataFile "reference.docx"
+                     case arch of
+                       Left err -> throwError $ PandocParseError $
+                         "Could not parse reference-doc " <>
+                           tshow f <> ": " <> T.pack err
+                       Right x -> pure x
+                   Nothing -> do
+                     arch <- toArchiveOrFail . BL.fromStrict <$>
+                                 readDataFile "reference.docx"
+                     case arch of
+                       Left err -> throwError $ PandocParseError $
+                         "Could not parse reference.docx: " <> T.pack err
+                       Right x -> pure x
   return (refArchive, distArchive, username, utctime)
 
 isWmlNamespace :: QName -> Bool
@@ -760,7 +770,7 @@ mkStylesEntry epochtime styledoc styleMaps st opts =
 mkCorePropsEntry :: Integer -> UTCTime -> Meta -> Entry
 mkCorePropsEntry epochtime utctime meta =
   let metaValueToText (MetaString s)    = s
-      metaValueToText (MetaInlines ils) = stringify ils
+      metaValueToText (MetaInlines ils) = stringifyInlines ils
       metaValueToText (MetaBlocks bs)   = stringify bs
       metaValueToText (MetaBool b)      = T.pack (show b)
       metaValueToText _                 = ""
@@ -784,8 +794,8 @@ mkCorePropsEntry epochtime utctime meta =
           ,("xmlns:dcterms","http://purl.org/dc/terms/")
           ,("xmlns:dcmitype","http://purl.org/dc/dcmitype/")
           ,("xmlns:xsi","http://www.w3.org/2001/XMLSchema-instance")]
-          $ mktnode "dc:title" [] (stringify $ docTitle meta)
-          : mktnode "dc:creator" [] (T.intercalate "; " (map stringify $ docAuthors meta))
+          $ mktnode "dc:title" [] (stringifyInlines $ docTitle meta)
+          : mktnode "dc:creator" [] (T.intercalate "; " (map stringifyInlines $ docAuthors meta))
           : [ mktnode (M.findWithDefault "" k extraCorePropsMap) [] (lookupMetaString' k meta)
             | k <- M.keys (unMeta meta), k `elem` extraCoreProps]
           ++ mknode "cp:keywords" [] (T.intercalate ", " keywords)

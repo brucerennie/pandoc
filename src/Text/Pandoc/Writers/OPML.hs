@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE CPP               #-}
 {- |
    Module      : Text.Pandoc.Writers.OPML
    Copyright   : Copyright (C) 2013-2024 John MacFarlane
@@ -30,9 +29,7 @@ import Text.Pandoc.XML
 -- | Convert Pandoc document to string in OPML format.
 writeOPML :: PandocMonad m => WriterOptions -> Pandoc -> m Text
 writeOPML opts (Pandoc meta blocks) = do
-  let colwidth = if writerWrapText opts == WrapAuto
-                    then Just $ writerColumns opts
-                    else Nothing
+  let colwidth = wrapColumns opts
       meta' = B.setMeta "date" (B.str $ convertDate $ docDate meta) meta
   metadata <- metaToContext opts
               (fmap literal . writeMarkdown' opts . Pandoc nullMeta)
@@ -65,7 +62,8 @@ showDateTimeRFC822 = T.pack . formatTime defaultTimeLocale "%a, %d %b %Y %X %Z"
 
 convertDate :: [Inline] -> Text
 convertDate ils = maybe "" showDateTimeRFC822 $
-  parseTimeM True defaultTimeLocale "%F" . T.unpack =<< normalizeDate (stringify ils)
+  parseTimeM True defaultTimeLocale "%F" . T.unpack =<<
+    normalizeDate (stringifyInlines ils)
 
 -- | Convert a Block to OPML.
 blockToOPML :: PandocMonad m => WriterOptions -> Block -> m (Doc Text)

@@ -54,6 +54,8 @@ It can convert *from*
 - `fb2`
   ([FictionBook2](http://www.fictionbook.org/index.php/Eng:XML_Schema_Fictionbook_2.1)
   e-book)
+- `fodt` (flat [OpenDocument text
+  document](https://en.wikipedia.org/wiki/OpenDocument))
 - `gfm` ([GitHub-Flavored
   Markdown](https://help.github.com/articles/github-flavored-markdown/)),
   or the deprecated and less accurate `markdown_github`; use
@@ -80,7 +82,7 @@ It can convert *from*
 - `markdown_strict` (original unextended
   [Markdown](https://daringfireball.net/projects/markdown/))
 - `mediawiki` ([MediaWiki
-  markup](https://www.mediawiki.org/wiki/Help:Formatting))
+  markup](https://www.mediawiki.org/wiki/Special:MyLanguage/Help:Formatting))
 - `man` ([roff man](https://man.cx/groff_man(7)))
 - `mdoc` ([mdoc](https://mandoc.bsd.lv/man/mdoc.7.html) manual page
   markup)
@@ -161,6 +163,8 @@ It can convert *to*
 - `fb2`
   ([FictionBook2](http://www.fictionbook.org/index.php/Eng:XML_Schema_Fictionbook_2.1)
   e-book)
+- `fodt` (flat [OpenDocument text
+  document](https://en.wikipedia.org/wiki/OpenDocument))
 - `gfm` ([GitHub-Flavored
   Markdown](https://help.github.com/articles/github-flavored-markdown/)),
   or the deprecated and less accurate `markdown_github`; use
@@ -200,7 +204,7 @@ It can convert *to*
   [Markdown](https://daringfireball.net/projects/markdown/))
 - `markua` ([Markua](https://leanpub.com/markua/read))
 - `mediawiki` ([MediaWiki
-  markup](https://www.mediawiki.org/wiki/Help:Formatting))
+  markup](https://www.mediawiki.org/wiki/Special:MyLanguage/Help:Formatting))
 - `ms` ([roff ms](https://man.cx/groff_ms(7)))
 - `muse` ([Muse](https://amusewiki.org/library/manual))
 - `native` (native Haskell)

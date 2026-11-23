@@ -256,7 +256,7 @@ Pandoc
       ]
   , Para
       [ Image
-          ( "" , [ "red icon" ] , [] )
+          ( "" , [ "red" , "icon" ] , [] )
           []
           ( "./images/icons/heart.png" , "" )
       ]
@@ -1825,136 +1825,139 @@ Pandoc
       , ( AlignDefault , ColWidth 0.25 )
       , ( AlignDefault , ColWidth 0.375 )
       ]
-      (TableHead
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "This"
-                     , Space
-                     , Str "content"
-                     , Space
-                     , Str "is"
-                     , Space
-                     , Str "placed"
-                     , Space
-                     , Str "in"
-                     , Space
-                     , Str "the"
-                     , Space
-                     , Str "first"
-                     , Space
-                     , Str "cell"
-                     , Space
-                     , Str "of"
-                     , Space
-                     , Str "column"
-                     , Space
-                     , Str "1"
-                     ]
-                 ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "This"
-                     , Space
-                     , Str "line"
-                     , Space
-                     , Str "starts"
-                     , Space
-                     , Str "with"
-                     , Space
-                     , Str "a"
-                     , Space
-                     , Str "vertical"
-                     , Space
-                     , Str "bar"
-                     , Space
-                     , Str "so"
-                     , Space
-                     , Str "this"
-                     , Space
-                     , Str "content"
-                     , Space
-                     , Str "is"
-                     , Space
-                     , Str "placed"
-                     , Space
-                     , Str "in"
-                     , Space
-                     , Str "a"
-                     , Space
-                     , Str "new"
-                     , Space
-                     , Str "cell"
-                     , Space
-                     , Str "in"
-                     , SoftBreak
-                     , Str "column"
-                     , Space
-                     , Str "2"
-                     ]
-                 ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "When"
-                     , Space
-                     , Str "the"
-                     , Space
-                     , Str "processor"
-                     , Space
-                     , Str "encounters"
-                     , Space
-                     , Str "a"
-                     , Space
-                     , Str "whitespace"
-                     , Space
-                     , Str "followed"
-                     , Space
-                     , Str "by"
-                     , Space
-                     , Str "a"
-                     , Space
-                     , Str "vertical"
-                     , Space
-                     , Str "bar"
-                     , Space
-                     , Str "it"
-                     , SoftBreak
-                     , Str "ends"
-                     , Space
-                     , Str "the"
-                     , Space
-                     , Str "previous"
-                     , Space
-                     , Str "cell"
-                     , Space
-                     , Str "and"
-                     , Space
-                     , Str "starts"
-                     , Space
-                     , Str "a"
-                     , Space
-                     , Str "new"
-                     , Space
-                     , Str "cell"
-                     ]
-                 ]
-             ]
-         ])
-      [ TableBody ( "" , [] , [] ) (RowHeadColumns 0) [] [] ]
+      (TableHead ( "" , [] , [] ) [])
+      [ TableBody
+          ( "" , [] , [] )
+          (RowHeadColumns 0)
+          []
+          [ Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "This"
+                      , Space
+                      , Str "content"
+                      , Space
+                      , Str "is"
+                      , Space
+                      , Str "placed"
+                      , Space
+                      , Str "in"
+                      , Space
+                      , Str "the"
+                      , Space
+                      , Str "first"
+                      , Space
+                      , Str "cell"
+                      , Space
+                      , Str "of"
+                      , Space
+                      , Str "column"
+                      , Space
+                      , Str "1"
+                      ]
+                  ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "This"
+                      , Space
+                      , Str "line"
+                      , Space
+                      , Str "starts"
+                      , Space
+                      , Str "with"
+                      , Space
+                      , Str "a"
+                      , Space
+                      , Str "vertical"
+                      , Space
+                      , Str "bar"
+                      , Space
+                      , Str "so"
+                      , Space
+                      , Str "this"
+                      , Space
+                      , Str "content"
+                      , Space
+                      , Str "is"
+                      , Space
+                      , Str "placed"
+                      , Space
+                      , Str "in"
+                      , Space
+                      , Str "a"
+                      , Space
+                      , Str "new"
+                      , Space
+                      , Str "cell"
+                      , Space
+                      , Str "in"
+                      , SoftBreak
+                      , Str "column"
+                      , Space
+                      , Str "2"
+                      ]
+                  ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "When"
+                      , Space
+                      , Str "the"
+                      , Space
+                      , Str "processor"
+                      , Space
+                      , Str "encounters"
+                      , Space
+                      , Str "a"
+                      , Space
+                      , Str "whitespace"
+                      , Space
+                      , Str "followed"
+                      , Space
+                      , Str "by"
+                      , Space
+                      , Str "a"
+                      , Space
+                      , Str "vertical"
+                      , Space
+                      , Str "bar"
+                      , Space
+                      , Str "it"
+                      , SoftBreak
+                      , Str "ends"
+                      , Space
+                      , Str "the"
+                      , Space
+                      , Str "previous"
+                      , Space
+                      , Str "cell"
+                      , Space
+                      , Str "and"
+                      , Space
+                      , Str "starts"
+                      , Space
+                      , Str "a"
+                      , Space
+                      , Str "new"
+                      , Space
+                      , Str "cell"
+                      ]
+                  ]
+              ]
+          ]
+      ]
       (TableFoot ( "" , [] , [] ) [])
   , Header
       3
@@ -1973,85 +1976,88 @@ Pandoc
       [ ( AlignDefault , ColWidthDefault )
       , ( AlignDefault , ColWidthDefault )
       ]
-      (TableHead
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignRight
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Strong
-                         [ Str "This"
-                         , Space
-                         , Str "cell\8217s"
-                         , Space
-                         , Str "specifier"
-                         , Space
-                         , Str "indicates"
-                         , Space
-                         , Str "that"
-                         , Space
-                         , Str "this"
-                         , Space
-                         , Str "cell\8217s"
-                         , Space
-                         , Str "content"
-                         , Space
-                         , Str "is"
-                         , Space
-                         , Str "right-aligned"
-                         , Space
-                         , Str "and"
-                         , Space
-                         , Str "bold."
-                         ]
-                     ]
-                 ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "The"
-                     , Space
-                     , Str "cell"
-                     , Space
-                     , Str "specifier"
-                     , Space
-                     , Str "on"
-                     , Space
-                     , Str "this"
-                     , Space
-                     , Str "cell"
-                     , Space
-                     , Str "hasn\8217t"
-                     , Space
-                     , Str "been"
-                     , Space
-                     , Str "set"
-                     , Space
-                     , Str "explicitly,"
-                     , Space
-                     , Str "so"
-                     , Space
-                     , Str "the"
-                     , Space
-                     , Str "default"
-                     , SoftBreak
-                     , Str "properties"
-                     , Space
-                     , Str "are"
-                     , Space
-                     , Str "applied."
-                     ]
-                 ]
-             ]
-         ])
-      [ TableBody ( "" , [] , [] ) (RowHeadColumns 0) [] [] ]
+      (TableHead ( "" , [] , [] ) [])
+      [ TableBody
+          ( "" , [] , [] )
+          (RowHeadColumns 0)
+          []
+          [ Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignRight
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Strong
+                          [ Str "This"
+                          , Space
+                          , Str "cell\8217s"
+                          , Space
+                          , Str "specifier"
+                          , Space
+                          , Str "indicates"
+                          , Space
+                          , Str "that"
+                          , Space
+                          , Str "this"
+                          , Space
+                          , Str "cell\8217s"
+                          , Space
+                          , Str "content"
+                          , Space
+                          , Str "is"
+                          , Space
+                          , Str "right-aligned"
+                          , Space
+                          , Str "and"
+                          , Space
+                          , Str "bold."
+                          ]
+                      ]
+                  ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "The"
+                      , Space
+                      , Str "cell"
+                      , Space
+                      , Str "specifier"
+                      , Space
+                      , Str "on"
+                      , Space
+                      , Str "this"
+                      , Space
+                      , Str "cell"
+                      , Space
+                      , Str "hasn\8217t"
+                      , Space
+                      , Str "been"
+                      , Space
+                      , Str "set"
+                      , Space
+                      , Str "explicitly,"
+                      , Space
+                      , Str "so"
+                      , Space
+                      , Str "the"
+                      , Space
+                      , Str "default"
+                      , SoftBreak
+                      , Str "properties"
+                      , Space
+                      , Str "are"
+                      , Space
+                      , Str "applied."
+                      ]
+                  ]
+              ]
+          ]
+      ]
       (TableFoot ( "" , [] , [] ) [])
   , Header
       3
@@ -2079,7 +2085,7 @@ Pandoc
                  AlignDefault
                  (RowSpan 1)
                  (ColSpan 1)
-                 [ Para
+                 [ Plain
                      [ Str "Column"
                      , Space
                      , Str "1,"
@@ -2094,7 +2100,7 @@ Pandoc
                  AlignDefault
                  (RowSpan 1)
                  (ColSpan 1)
-                 [ Para
+                 [ Plain
                      [ Str "Column"
                      , Space
                      , Str "2,"
@@ -2117,7 +2123,7 @@ Pandoc
                   AlignDefault
                   (RowSpan 1)
                   (ColSpan 1)
-                  [ Para
+                  [ Plain
                       [ Str "Cell"
                       , Space
                       , Str "in"
@@ -2136,7 +2142,7 @@ Pandoc
                   AlignDefault
                   (RowSpan 1)
                   (ColSpan 1)
-                  [ Para
+                  [ Plain
                       [ Str "Cell"
                       , Space
                       , Str "in"
@@ -2151,52 +2157,50 @@ Pandoc
                       ]
                   ]
               ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "Cell"
+                      , Space
+                      , Str "in"
+                      , Space
+                      , Str "column"
+                      , Space
+                      , Str "1,"
+                      , Space
+                      , Str "row"
+                      , Space
+                      , Str "3"
+                      ]
+                  ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "Cell"
+                      , Space
+                      , Str "in"
+                      , Space
+                      , Str "column"
+                      , Space
+                      , Str "2,"
+                      , Space
+                      , Str "row"
+                      , Space
+                      , Str "3"
+                      ]
+                  ]
+              ]
           ]
       ]
-      (TableFoot
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "Cell"
-                     , Space
-                     , Str "in"
-                     , Space
-                     , Str "column"
-                     , Space
-                     , Str "1,"
-                     , Space
-                     , Str "row"
-                     , Space
-                     , Str "3"
-                     ]
-                 ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "Cell"
-                     , Space
-                     , Str "in"
-                     , Space
-                     , Str "column"
-                     , Space
-                     , Str "2,"
-                     , Space
-                     , Str "row"
-                     , Space
-                     , Str "3"
-                     ]
-                 ]
-             ]
-         ])
+      (TableFoot ( "" , [] , [] ) [])
   , Header
       3
       ( "_with_caption" , [] , [] )
@@ -2220,7 +2224,7 @@ Pandoc
                  AlignDefault
                  (RowSpan 1)
                  (ColSpan 1)
-                 [ Para
+                 [ Plain
                      [ Str "Column"
                      , Space
                      , Str "1,"
@@ -2235,7 +2239,7 @@ Pandoc
                  AlignDefault
                  (RowSpan 1)
                  (ColSpan 1)
-                 [ Para
+                 [ Plain
                      [ Str "Column"
                      , Space
                      , Str "2,"
@@ -2258,7 +2262,7 @@ Pandoc
                   AlignDefault
                   (RowSpan 1)
                   (ColSpan 1)
-                  [ Para
+                  [ Plain
                       [ Str "Cell"
                       , Space
                       , Str "in"
@@ -2277,7 +2281,7 @@ Pandoc
                   AlignDefault
                   (RowSpan 1)
                   (ColSpan 1)
-                  [ Para
+                  [ Plain
                       [ Str "Cell"
                       , Space
                       , Str "in"
@@ -2292,52 +2296,50 @@ Pandoc
                       ]
                   ]
               ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "Cell"
+                      , Space
+                      , Str "in"
+                      , Space
+                      , Str "column"
+                      , Space
+                      , Str "1,"
+                      , Space
+                      , Str "row"
+                      , Space
+                      , Str "3"
+                      ]
+                  ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "Cell"
+                      , Space
+                      , Str "in"
+                      , Space
+                      , Str "column"
+                      , Space
+                      , Str "2,"
+                      , Space
+                      , Str "row"
+                      , Space
+                      , Str "3"
+                      ]
+                  ]
+              ]
           ]
       ]
-      (TableFoot
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "Cell"
-                     , Space
-                     , Str "in"
-                     , Space
-                     , Str "column"
-                     , Space
-                     , Str "1,"
-                     , Space
-                     , Str "row"
-                     , Space
-                     , Str "3"
-                     ]
-                 ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "Cell"
-                     , Space
-                     , Str "in"
-                     , Space
-                     , Str "column"
-                     , Space
-                     , Str "2,"
-                     , Space
-                     , Str "row"
-                     , Space
-                     , Str "3"
-                     ]
-                 ]
-             ]
-         ])
+      (TableFoot ( "" , [] , [] ) [])
   , Header
       3
       ( "_no_header" , [] , [] )
@@ -2391,7 +2393,7 @@ Pandoc
                   AlignDefault
                   (RowSpan 1)
                   (ColSpan 1)
-                  [ Para
+                  [ Plain
                       [ Str "Cell"
                       , Space
                       , Str "in"
@@ -2410,7 +2412,7 @@ Pandoc
                   AlignDefault
                   (RowSpan 1)
                   (ColSpan 1)
-                  [ Para
+                  [ Plain
                       [ Str "Cell"
                       , Space
                       , Str "in"
@@ -2425,52 +2427,50 @@ Pandoc
                       ]
                   ]
               ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "Cell"
+                      , Space
+                      , Str "in"
+                      , Space
+                      , Str "column"
+                      , Space
+                      , Str "1,"
+                      , Space
+                      , Str "row"
+                      , Space
+                      , Str "2"
+                      ]
+                  ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "Cell"
+                      , Space
+                      , Str "in"
+                      , Space
+                      , Str "column"
+                      , Space
+                      , Str "2,"
+                      , Space
+                      , Str "row"
+                      , Space
+                      , Str "2"
+                      ]
+                  ]
+              ]
           ]
       ]
-      (TableFoot
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "Cell"
-                     , Space
-                     , Str "in"
-                     , Space
-                     , Str "column"
-                     , Space
-                     , Str "1,"
-                     , Space
-                     , Str "row"
-                     , Space
-                     , Str "2"
-                     ]
-                 ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "Cell"
-                     , Space
-                     , Str "in"
-                     , Space
-                     , Str "column"
-                     , Space
-                     , Str "2,"
-                     , Space
-                     , Str "row"
-                     , Space
-                     , Str "2"
-                     ]
-                 ]
-             ]
-         ])
+      (TableFoot ( "" , [] , [] ) [])
   , Para
       [ Str "And"
       , Space
@@ -2486,24 +2486,7 @@ Pandoc
       [ ( AlignDefault , ColWidthDefault )
       , ( AlignDefault , ColWidthDefault )
       ]
-      (TableHead
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Cell" , Space , Str "A1" ] ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Cell" , Space , Str "B1" ] ]
-             ]
-         ])
+      (TableHead ( "" , [] , [] ) [])
       [ TableBody
           ( "" , [] , [] )
           (RowHeadColumns 0)
@@ -2515,34 +2498,47 @@ Pandoc
                   AlignDefault
                   (RowSpan 1)
                   (ColSpan 1)
-                  [ Para [ Str "Cell" , Space , Str "A2" ] ]
+                  [ Plain [ Str "Cell" , Space , Str "A1" ] ]
               , Cell
                   ( "" , [] , [] )
                   AlignDefault
                   (RowSpan 1)
                   (ColSpan 1)
-                  [ Para [ Str "Cell" , Space , Str "B2" ] ]
+                  [ Plain [ Str "Cell" , Space , Str "B1" ] ]
+              ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "Cell" , Space , Str "A2" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "Cell" , Space , Str "B2" ] ]
+              ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "Cell" , Space , Str "A3" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "Cell" , Space , Str "B3" ] ]
               ]
           ]
       ]
-      (TableFoot
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Cell" , Space , Str "A3" ] ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Cell" , Space , Str "B3" ] ]
-             ]
-         ])
+      (TableFoot ( "" , [] , [] ) [])
   , Header 3 ( "_footer" , [] , [] ) [ Str "Footer" ]
   , Table
       ( "" , [] , [] )
@@ -2551,57 +2547,7 @@ Pandoc
       , ( AlignDefault , ColWidth 0.4 )
       , ( AlignDefault , ColWidth 0.2 )
       ]
-      (TableHead
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "Column"
-                     , Space
-                     , Str "1,"
-                     , Space
-                     , Str "header"
-                     , Space
-                     , Str "row"
-                     ]
-                 ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "Column"
-                     , Space
-                     , Str "2,"
-                     , Space
-                     , Str "header"
-                     , Space
-                     , Str "row"
-                     ]
-                 ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "Column"
-                     , Space
-                     , Str "3,"
-                     , Space
-                     , Str "header"
-                     , Space
-                     , Str "row"
-                     ]
-                 ]
-             ]
-         ])
+      (TableHead ( "" , [] , [] ) [])
       [ TableBody
           ( "" , [] , [] )
           (RowHeadColumns 0)
@@ -2613,7 +2559,55 @@ Pandoc
                   AlignDefault
                   (RowSpan 1)
                   (ColSpan 1)
-                  [ Para
+                  [ Plain
+                      [ Str "Column"
+                      , Space
+                      , Str "1,"
+                      , Space
+                      , Str "header"
+                      , Space
+                      , Str "row"
+                      ]
+                  ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "Column"
+                      , Space
+                      , Str "2,"
+                      , Space
+                      , Str "header"
+                      , Space
+                      , Str "row"
+                      ]
+                  ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "Column"
+                      , Space
+                      , Str "3,"
+                      , Space
+                      , Str "header"
+                      , Space
+                      , Str "row"
+                      ]
+                  ]
+              ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
                       [ Str "Cell"
                       , Space
                       , Str "in"
@@ -2632,7 +2626,7 @@ Pandoc
                   AlignDefault
                   (RowSpan 1)
                   (ColSpan 1)
-                  [ Para
+                  [ Plain
                       [ Str "Cell"
                       , Space
                       , Str "in"
@@ -2651,7 +2645,7 @@ Pandoc
                   AlignDefault
                   (RowSpan 1)
                   (ColSpan 1)
-                  [ Para
+                  [ Plain
                       [ Str "Cell"
                       , Space
                       , Str "in"
@@ -2666,59 +2660,57 @@ Pandoc
                       ]
                   ]
               ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "Column"
+                      , Space
+                      , Str "1,"
+                      , Space
+                      , Str "footer"
+                      , Space
+                      , Str "row"
+                      ]
+                  ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "Column"
+                      , Space
+                      , Str "2,"
+                      , Space
+                      , Str "footer"
+                      , Space
+                      , Str "row"
+                      ]
+                  ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "Column"
+                      , Space
+                      , Str "3,"
+                      , Space
+                      , Str "footer"
+                      , Space
+                      , Str "row"
+                      ]
+                  ]
+              ]
           ]
       ]
-      (TableFoot
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "Column"
-                     , Space
-                     , Str "1,"
-                     , Space
-                     , Str "footer"
-                     , Space
-                     , Str "row"
-                     ]
-                 ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "Column"
-                     , Space
-                     , Str "2,"
-                     , Space
-                     , Str "footer"
-                     , Space
-                     , Str "row"
-                     ]
-                 ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "Column"
-                     , Space
-                     , Str "3,"
-                     , Space
-                     , Str "footer"
-                     , Space
-                     , Str "row"
-                     ]
-                 ]
-             ]
-         ])
+      (TableFoot ( "" , [] , [] ) [])
   , Para [ Str "or" ]
   , Table
       ( "" , [] , [] )
@@ -2726,42 +2718,7 @@ Pandoc
       [ ( AlignDefault , ColWidthDefault )
       , ( AlignDefault , ColWidthDefault )
       ]
-      (TableHead
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "Column"
-                     , Space
-                     , Str "1,"
-                     , Space
-                     , Str "header"
-                     , Space
-                     , Str "row"
-                     ]
-                 ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "Column"
-                     , Space
-                     , Str "2,"
-                     , Space
-                     , Str "header"
-                     , Space
-                     , Str "row"
-                     ]
-                 ]
-             ]
-         ])
+      (TableHead ( "" , [] , [] ) [])
       [ TableBody
           ( "" , [] , [] )
           (RowHeadColumns 0)
@@ -2773,7 +2730,40 @@ Pandoc
                   AlignDefault
                   (RowSpan 1)
                   (ColSpan 1)
-                  [ Para
+                  [ Plain
+                      [ Str "Column"
+                      , Space
+                      , Str "1,"
+                      , Space
+                      , Str "header"
+                      , Space
+                      , Str "row"
+                      ]
+                  ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "Column"
+                      , Space
+                      , Str "2,"
+                      , Space
+                      , Str "header"
+                      , Space
+                      , Str "row"
+                      ]
+                  ]
+              ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
                       [ Str "Cell"
                       , Space
                       , Str "in"
@@ -2792,7 +2782,7 @@ Pandoc
                   AlignDefault
                   (RowSpan 1)
                   (ColSpan 1)
-                  [ Para
+                  [ Plain
                       [ Str "Cell"
                       , Space
                       , Str "in"
@@ -2814,7 +2804,7 @@ Pandoc
                   AlignDefault
                   (RowSpan 1)
                   (ColSpan 1)
-                  [ Para
+                  [ Plain
                       [ Str "Cell"
                       , Space
                       , Str "in"
@@ -2833,7 +2823,7 @@ Pandoc
                   AlignDefault
                   (RowSpan 1)
                   (ColSpan 1)
-                  [ Para
+                  [ Plain
                       [ Str "Cell"
                       , Space
                       , Str "in"
@@ -2859,7 +2849,7 @@ Pandoc
                  AlignDefault
                  (RowSpan 1)
                  (ColSpan 1)
-                 [ Para
+                 [ Plain
                      [ Str "Column"
                      , Space
                      , Str "1,"
@@ -2874,7 +2864,7 @@ Pandoc
                  AlignDefault
                  (RowSpan 1)
                  (ColSpan 1)
-                 [ Para
+                 [ Plain
                      [ Str "Column"
                      , Space
                      , Str "2,"
@@ -2893,24 +2883,7 @@ Pandoc
       [ ( AlignDefault , ColWidthDefault )
       , ( AlignDefault , ColWidthDefault )
       ]
-      (TableHead
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Column" , Space , Str "Name" ] ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Column" , Space , Str "Name" ] ]
-             ]
-         ])
+      (TableHead ( "" , [] , [] ) [])
       [ TableBody
           ( "" , [] , [] )
           (RowHeadColumns 0)
@@ -2919,10 +2892,25 @@ Pandoc
               ( "" , [] , [] )
               [ Cell
                   ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "Column" , Space , Str "Name" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "Column" , Space , Str "Name" ] ]
+              ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
                   AlignCenter
                   (RowSpan 1)
                   (ColSpan 2)
-                  [ Para
+                  [ Plain
                       [ Str "This"
                       , Space
                       , Str "cell"
@@ -2963,112 +2951,110 @@ Pandoc
                       ]
                   ]
               ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignCenter
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "This"
+                      , Space
+                      , Str "content"
+                      , Space
+                      , Str "is"
+                      , Space
+                      , Str "duplicated"
+                      , Space
+                      , Str "in"
+                      , Space
+                      , Str "two"
+                      , Space
+                      , Str "adjacent"
+                      , Space
+                      , Str "columns."
+                      , SoftBreak
+                      , Str "Its"
+                      , Space
+                      , Str "content"
+                      , Space
+                      , Str "is"
+                      , Space
+                      , Str "horizontally"
+                      , Space
+                      , Str "centered"
+                      , Space
+                      , Str "because"
+                      , Space
+                      , Str "the"
+                      , Space
+                      , Str "cell"
+                      , Space
+                      , Str "specifier"
+                      , SoftBreak
+                      , Str "includes"
+                      , Space
+                      , Str "the"
+                      , Space
+                      , Code ( "" , [] , [] ) "^"
+                      , Space
+                      , Str "operator."
+                      ]
+                  ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignCenter
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "This"
+                      , Space
+                      , Str "content"
+                      , Space
+                      , Str "is"
+                      , Space
+                      , Str "duplicated"
+                      , Space
+                      , Str "in"
+                      , Space
+                      , Str "two"
+                      , Space
+                      , Str "adjacent"
+                      , Space
+                      , Str "columns."
+                      , SoftBreak
+                      , Str "Its"
+                      , Space
+                      , Str "content"
+                      , Space
+                      , Str "is"
+                      , Space
+                      , Str "horizontally"
+                      , Space
+                      , Str "centered"
+                      , Space
+                      , Str "because"
+                      , Space
+                      , Str "the"
+                      , Space
+                      , Str "cell"
+                      , Space
+                      , Str "specifier"
+                      , SoftBreak
+                      , Str "includes"
+                      , Space
+                      , Str "the"
+                      , Space
+                      , Code ( "" , [] , [] ) "^"
+                      , Space
+                      , Str "operator."
+                      ]
+                  ]
+              ]
           ]
       ]
-      (TableFoot
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignCenter
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "This"
-                     , Space
-                     , Str "content"
-                     , Space
-                     , Str "is"
-                     , Space
-                     , Str "duplicated"
-                     , Space
-                     , Str "in"
-                     , Space
-                     , Str "two"
-                     , Space
-                     , Str "adjacent"
-                     , Space
-                     , Str "columns."
-                     , SoftBreak
-                     , Str "Its"
-                     , Space
-                     , Str "content"
-                     , Space
-                     , Str "is"
-                     , Space
-                     , Str "horizontally"
-                     , Space
-                     , Str "centered"
-                     , Space
-                     , Str "because"
-                     , Space
-                     , Str "the"
-                     , Space
-                     , Str "cell"
-                     , Space
-                     , Str "specifier"
-                     , SoftBreak
-                     , Str "includes"
-                     , Space
-                     , Str "the"
-                     , Space
-                     , Code ( "" , [] , [] ) "^"
-                     , Space
-                     , Str "operator."
-                     ]
-                 ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignCenter
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "This"
-                     , Space
-                     , Str "content"
-                     , Space
-                     , Str "is"
-                     , Space
-                     , Str "duplicated"
-                     , Space
-                     , Str "in"
-                     , Space
-                     , Str "two"
-                     , Space
-                     , Str "adjacent"
-                     , Space
-                     , Str "columns."
-                     , SoftBreak
-                     , Str "Its"
-                     , Space
-                     , Str "content"
-                     , Space
-                     , Str "is"
-                     , Space
-                     , Str "horizontally"
-                     , Space
-                     , Str "centered"
-                     , Space
-                     , Str "because"
-                     , Space
-                     , Str "the"
-                     , Space
-                     , Str "cell"
-                     , Space
-                     , Str "specifier"
-                     , SoftBreak
-                     , Str "includes"
-                     , Space
-                     , Str "the"
-                     , Space
-                     , Code ( "" , [] , [] ) "^"
-                     , Space
-                     , Str "operator."
-                     ]
-                 ]
-             ]
-         ])
+      (TableFoot ( "" , [] , [] ) [])
   , Header
       3
       ( "_multiple_paragraphs_in_cells" , [] , [] )
@@ -3084,64 +3070,65 @@ Pandoc
       ( "" , [] , [] )
       (Caption Nothing [])
       [ ( AlignDefault , ColWidthDefault ) ]
-      (TableHead
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "Single"
-                     , Space
-                     , Str "paragraph"
-                     , Space
-                     , Str "on"
-                     , Space
-                     , Str "row"
-                     , Space
-                     , Str "1"
-                     ]
-                 ]
-             ]
-         ])
-      [ TableBody ( "" , [] , [] ) (RowHeadColumns 0) [] [] ]
-      (TableFoot
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "First"
-                     , Space
-                     , Str "paragraph"
-                     , Space
-                     , Str "on"
-                     , Space
-                     , Str "row"
-                     , Space
-                     , Str "2"
-                     ]
-                 , Para
-                     [ Str "Second"
-                     , Space
-                     , Str "paragraph"
-                     , Space
-                     , Str "on"
-                     , Space
-                     , Str "row"
-                     , Space
-                     , Str "2"
-                     ]
-                 ]
-             ]
-         ])
+      (TableHead ( "" , [] , [] ) [])
+      [ TableBody
+          ( "" , [] , [] )
+          (RowHeadColumns 0)
+          []
+          [ Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Para
+                      [ Str "Single"
+                      , Space
+                      , Str "paragraph"
+                      , Space
+                      , Str "on"
+                      , Space
+                      , Str "row"
+                      , Space
+                      , Str "1"
+                      ]
+                  ]
+              ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Para
+                      [ Str "First"
+                      , Space
+                      , Str "paragraph"
+                      , Space
+                      , Str "on"
+                      , Space
+                      , Str "row"
+                      , Space
+                      , Str "2"
+                      ]
+                  , Para
+                      [ Str "Second"
+                      , Space
+                      , Str "paragraph"
+                      , Space
+                      , Str "on"
+                      , Space
+                      , Str "row"
+                      , Space
+                      , Str "2"
+                      ]
+                  ]
+              ]
+          ]
+      ]
+      (TableFoot ( "" , [] , [] ) [])
   , Header
       3
       ( "_complex_table" , [] , [] )
@@ -3152,94 +3139,7 @@ Pandoc
       [ ( AlignDefault , ColWidthDefault )
       , ( AlignDefault , ColWidthDefault )
       ]
-      (TableHead
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignRight
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Code ( "" , [] , [] ) "This"
-                     , Space
-                     , Code ( "" , [] , [] ) "content"
-                     , Space
-                     , Code ( "" , [] , [] ) "is"
-                     , Space
-                     , Code ( "" , [] , [] ) "duplicated"
-                     , Space
-                     , Code ( "" , [] , [] ) "across"
-                     , Space
-                     , Code ( "" , [] , [] ) "two"
-                     , Space
-                     , Code ( "" , [] , [] ) "columns."
-                     ]
-                 , Para
-                     [ Code ( "" , [] , [] ) "It"
-                     , Space
-                     , Code ( "" , [] , [] ) "is"
-                     , Space
-                     , Code ( "" , [] , [] ) "aligned"
-                     , Space
-                     , Code ( "" , [] , [] ) "right"
-                     , Space
-                     , Code ( "" , [] , [] ) "horizontally."
-                     ]
-                 , Para
-                     [ Code ( "" , [] , [] ) "And"
-                     , Space
-                     , Code ( "" , [] , [] ) "it"
-                     , Space
-                     , Code ( "" , [] , [] ) "is"
-                     , Space
-                     , Code ( "" , [] , [] ) "monospaced."
-                     ]
-                 ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignRight
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Code ( "" , [] , [] ) "This"
-                     , Space
-                     , Code ( "" , [] , [] ) "content"
-                     , Space
-                     , Code ( "" , [] , [] ) "is"
-                     , Space
-                     , Code ( "" , [] , [] ) "duplicated"
-                     , Space
-                     , Code ( "" , [] , [] ) "across"
-                     , Space
-                     , Code ( "" , [] , [] ) "two"
-                     , Space
-                     , Code ( "" , [] , [] ) "columns."
-                     ]
-                 , Para
-                     [ Code ( "" , [] , [] ) "It"
-                     , Space
-                     , Code ( "" , [] , [] ) "is"
-                     , Space
-                     , Code ( "" , [] , [] ) "aligned"
-                     , Space
-                     , Code ( "" , [] , [] ) "right"
-                     , Space
-                     , Code ( "" , [] , [] ) "horizontally."
-                     ]
-                 , Para
-                     [ Code ( "" , [] , [] ) "And"
-                     , Space
-                     , Code ( "" , [] , [] ) "it"
-                     , Space
-                     , Code ( "" , [] , [] ) "is"
-                     , Space
-                     , Code ( "" , [] , [] ) "monospaced."
-                     ]
-                 ]
-             ]
-         ])
+      (TableHead ( "" , [] , [] ) [])
       [ TableBody
           ( "" , [] , [] )
           (RowHeadColumns 0)
@@ -3248,8 +3148,93 @@ Pandoc
               ( "" , [] , [] )
               [ Cell
                   ( "" , [] , [] )
+                  AlignRight
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Para
+                      [ Code ( "" , [] , [] ) "This"
+                      , Space
+                      , Code ( "" , [] , [] ) "content"
+                      , Space
+                      , Code ( "" , [] , [] ) "is"
+                      , Space
+                      , Code ( "" , [] , [] ) "duplicated"
+                      , Space
+                      , Code ( "" , [] , [] ) "across"
+                      , Space
+                      , Code ( "" , [] , [] ) "two"
+                      , Space
+                      , Code ( "" , [] , [] ) "columns."
+                      ]
+                  , Para
+                      [ Code ( "" , [] , [] ) "It"
+                      , Space
+                      , Code ( "" , [] , [] ) "is"
+                      , Space
+                      , Code ( "" , [] , [] ) "aligned"
+                      , Space
+                      , Code ( "" , [] , [] ) "right"
+                      , Space
+                      , Code ( "" , [] , [] ) "horizontally."
+                      ]
+                  , Para
+                      [ Code ( "" , [] , [] ) "And"
+                      , Space
+                      , Code ( "" , [] , [] ) "it"
+                      , Space
+                      , Code ( "" , [] , [] ) "is"
+                      , Space
+                      , Code ( "" , [] , [] ) "monospaced."
+                      ]
+                  ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignRight
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Para
+                      [ Code ( "" , [] , [] ) "This"
+                      , Space
+                      , Code ( "" , [] , [] ) "content"
+                      , Space
+                      , Code ( "" , [] , [] ) "is"
+                      , Space
+                      , Code ( "" , [] , [] ) "duplicated"
+                      , Space
+                      , Code ( "" , [] , [] ) "across"
+                      , Space
+                      , Code ( "" , [] , [] ) "two"
+                      , Space
+                      , Code ( "" , [] , [] ) "columns."
+                      ]
+                  , Para
+                      [ Code ( "" , [] , [] ) "It"
+                      , Space
+                      , Code ( "" , [] , [] ) "is"
+                      , Space
+                      , Code ( "" , [] , [] ) "aligned"
+                      , Space
+                      , Code ( "" , [] , [] ) "right"
+                      , Space
+                      , Code ( "" , [] , [] ) "horizontally."
+                      ]
+                  , Para
+                      [ Code ( "" , [] , [] ) "And"
+                      , Space
+                      , Code ( "" , [] , [] ) "it"
+                      , Space
+                      , Code ( "" , [] , [] ) "is"
+                      , Space
+                      , Code ( "" , [] , [] ) "monospaced."
+                      ]
+                  ]
+              ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
                   AlignCenter
-                  (RowSpan 2)
+                  (RowSpan 3)
                   (ColSpan 1)
                   [ Para
                       [ Strong
@@ -3323,28 +3308,21 @@ Pandoc
                       "This content is aligned to the top of the cell and literal.\n\n"
                   ]
               ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ CodeBlock
+                      ( "" , [] , [] )
+                      "puts \"This is a source block!\""
+                  ]
+              ]
           ]
       ]
-      (TableFoot
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ CodeBlock
-                     ( "" , [] , [] ) "puts \"This is a source block!\""
-                 ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 []
-             ]
-         ])
+      (TableFoot ( "" , [] , [] ) [])
   , Header
       3
       ( "_column_styles" , [] , [] )
@@ -3355,43 +3333,44 @@ Pandoc
       [ ( AlignDefault , ColWidthDefault )
       , ( AlignDefault , ColWidthDefault )
       ]
-      (TableHead
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Code ( "" , [] , [] ) "monospace" ] ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Code ( "" , [] , [] ) "mono" ] ]
-             ]
-         ])
-      [ TableBody ( "" , [] , [] ) (RowHeadColumns 0) [] [] ]
-      (TableFoot
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "default" ] ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Code ( "" , [] , [] ) "mono" ] ]
-             ]
-         ])
+      (TableHead ( "" , [] , [] ) [])
+      [ TableBody
+          ( "" , [] , [] )
+          (RowHeadColumns 0)
+          []
+          [ Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Code ( "" , [] , [] ) "monospace" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Code ( "" , [] , [] ) "mono" ] ]
+              ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "default" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Code ( "" , [] , [] ) "mono" ] ]
+              ]
+          ]
+      ]
+      (TableFoot ( "" , [] , [] ) [])
   , Header
       3
       ( "_block_elements_in_cells" , [] , [] )
@@ -3409,29 +3388,27 @@ Pandoc
       [ ( AlignDefault , ColWidthDefault )
       , ( AlignDefault , ColWidthDefault )
       ]
-      (TableHead
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Normal" , Space , Str "Style" ] ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "AsciiDoc" , Space , Str "Style" ] ]
-             ]
-         ])
+      (TableHead ( "" , [] , [] ) [])
       [ TableBody
           ( "" , [] , [] )
           (RowHeadColumns 0)
           []
           [ Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Para [ Str "Normal" , Space , Str "Style" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Para [ Str "AsciiDoc" , Space , Str "Style" ] ]
+              ]
+          , Row
               ( "" , [] , [] )
               [ Cell
                   ( "" , [] , [] )
@@ -3575,130 +3552,128 @@ Pandoc
                       ]
                   ]
               ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Para
+                      [ Str "This"
+                      , Space
+                      , Str "cell"
+                      , Space
+                      , Str "isn\8217t"
+                      , Space
+                      , Str "prefixed"
+                      , Space
+                      , Str "with"
+                      , Space
+                      , Str "an"
+                      , Space
+                      , Code ( "" , [] , [] ) "a"
+                      , Str ","
+                      , Space
+                      , Str "so"
+                      , Space
+                      , Str "the"
+                      , Space
+                      , Str "processor"
+                      , Space
+                      , Str "doesn\8217t"
+                      , Space
+                      , Str "interpret"
+                      , Space
+                      , Str "the"
+                      , Space
+                      , Str "listing"
+                      , SoftBreak
+                      , Str "block"
+                      , Space
+                      , Str "delimiters"
+                      , Space
+                      , Str "or"
+                      , Space
+                      , Str "the"
+                      , Space
+                      , Code ( "" , [] , [] ) "source"
+                      , Space
+                      , Str "style."
+                      ]
+                  , Para
+                      [ Str "----"
+                      , SoftBreak
+                      , Str "import"
+                      , Space
+                      , Str "os"
+                      , SoftBreak
+                      , Str "print"
+                      , Space
+                      , Str "(\"%s\""
+                      , Space
+                      , Str "%(os.uname()))"
+                      , SoftBreak
+                      , Str "----"
+                      ]
+                  ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Para
+                      [ Str "This"
+                      , Space
+                      , Str "cell"
+                      , Space
+                      , Str "is"
+                      , Space
+                      , Str "prefixed"
+                      , Space
+                      , Str "with"
+                      , Space
+                      , Str "an"
+                      , Space
+                      , Code ( "" , [] , [] ) "a"
+                      , Str ","
+                      , Space
+                      , Str "so"
+                      , Space
+                      , Str "the"
+                      , Space
+                      , Str "listing"
+                      , Space
+                      , Str "block"
+                      , Space
+                      , Str "is"
+                      , Space
+                      , Str "processed"
+                      , Space
+                      , Str "and"
+                      , Space
+                      , Str "rendered"
+                      , SoftBreak
+                      , Str "according"
+                      , Space
+                      , Str "to"
+                      , Space
+                      , Str "the"
+                      , Space
+                      , Code ( "" , [] , [] ) "source"
+                      , Space
+                      , Str "style"
+                      , Space
+                      , Str "rules."
+                      ]
+                  , CodeBlock
+                      ( "" , [ "python" ] , [] )
+                      "import os\nprint \"%s\" %(os.uname())"
+                  ]
+              ]
           ]
       ]
-      (TableFoot
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "This"
-                     , Space
-                     , Str "cell"
-                     , Space
-                     , Str "isn\8217t"
-                     , Space
-                     , Str "prefixed"
-                     , Space
-                     , Str "with"
-                     , Space
-                     , Str "an"
-                     , Space
-                     , Code ( "" , [] , [] ) "a"
-                     , Str ","
-                     , Space
-                     , Str "so"
-                     , Space
-                     , Str "the"
-                     , Space
-                     , Str "processor"
-                     , Space
-                     , Str "doesn\8217t"
-                     , Space
-                     , Str "interpret"
-                     , Space
-                     , Str "the"
-                     , Space
-                     , Str "listing"
-                     , SoftBreak
-                     , Str "block"
-                     , Space
-                     , Str "delimiters"
-                     , Space
-                     , Str "or"
-                     , Space
-                     , Str "the"
-                     , Space
-                     , Code ( "" , [] , [] ) "source"
-                     , Space
-                     , Str "style."
-                     ]
-                 , Para
-                     [ Str "----"
-                     , SoftBreak
-                     , Str "import"
-                     , Space
-                     , Str "os"
-                     , SoftBreak
-                     , Str "print"
-                     , Space
-                     , Str "(\"%s\""
-                     , Space
-                     , Str "%(os.uname()))"
-                     , SoftBreak
-                     , Str "----"
-                     ]
-                 ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "This"
-                     , Space
-                     , Str "cell"
-                     , Space
-                     , Str "is"
-                     , Space
-                     , Str "prefixed"
-                     , Space
-                     , Str "with"
-                     , Space
-                     , Str "an"
-                     , Space
-                     , Code ( "" , [] , [] ) "a"
-                     , Str ","
-                     , Space
-                     , Str "so"
-                     , Space
-                     , Str "the"
-                     , Space
-                     , Str "listing"
-                     , Space
-                     , Str "block"
-                     , Space
-                     , Str "is"
-                     , Space
-                     , Str "processed"
-                     , Space
-                     , Str "and"
-                     , Space
-                     , Str "rendered"
-                     , SoftBreak
-                     , Str "according"
-                     , Space
-                     , Str "to"
-                     , Space
-                     , Str "the"
-                     , Space
-                     , Code ( "" , [] , [] ) "source"
-                     , Space
-                     , Str "style"
-                     , Space
-                     , Str "rules."
-                     ]
-                 , CodeBlock
-                     ( "" , [ "python" ] , [] )
-                     "import os\nprint \"%s\" %(os.uname())"
-                 ]
-             ]
-         ])
+      (TableFoot ( "" , [] , [] ) [])
   , Header
       3
       ( "_col_and_rowspan" , [] , [] )
@@ -3710,57 +3685,7 @@ Pandoc
       , ( AlignDefault , ColWidthDefault )
       , ( AlignDefault , ColWidthDefault )
       ]
-      (TableHead
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "Column"
-                     , Space
-                     , Str "1,"
-                     , Space
-                     , Str "header"
-                     , Space
-                     , Str "row"
-                     ]
-                 ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "Column"
-                     , Space
-                     , Str "2,"
-                     , Space
-                     , Str "header"
-                     , Space
-                     , Str "row"
-                     ]
-                 ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para
-                     [ Str "Column"
-                     , Space
-                     , Str "3,"
-                     , Space
-                     , Str "header"
-                     , Space
-                     , Str "row"
-                     ]
-                 ]
-             ]
-         ])
+      (TableHead ( "" , [] , [] ) [])
       [ TableBody
           ( "" , [] , [] )
           (RowHeadColumns 0)
@@ -3770,9 +3695,57 @@ Pandoc
               [ Cell
                   ( "" , [] , [] )
                   AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "Column"
+                      , Space
+                      , Str "1,"
+                      , Space
+                      , Str "header"
+                      , Space
+                      , Str "row"
+                      ]
+                  ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "Column"
+                      , Space
+                      , Str "2,"
+                      , Space
+                      , Str "header"
+                      , Space
+                      , Str "row"
+                      ]
+                  ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "Column"
+                      , Space
+                      , Str "3,"
+                      , Space
+                      , Str "header"
+                      , Space
+                      , Str "row"
+                      ]
+                  ]
+              ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
                   (RowSpan 2)
                   (ColSpan 2)
-                  [ Para
+                  [ Plain
                       [ Str "This"
                       , Space
                       , Str "cell"
@@ -3795,7 +3768,7 @@ Pandoc
                   AlignDefault
                   (RowSpan 1)
                   (ColSpan 1)
-                  [ Para
+                  [ Plain
                       [ Str "Cell"
                       , Space
                       , Str "in"
@@ -3817,7 +3790,7 @@ Pandoc
                   AlignDefault
                   (RowSpan 1)
                   (ColSpan 1)
-                  [ Para
+                  [ Plain
                       [ Str "Cell"
                       , Space
                       , Str "in"
@@ -3832,33 +3805,31 @@ Pandoc
                       ]
                   ]
               ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 3)
+                  [ Plain
+                      [ Str "Cell"
+                      , Space
+                      , Str "in"
+                      , Space
+                      , Str "column"
+                      , Space
+                      , Str "1-3,"
+                      , Space
+                      , Str "row"
+                      , Space
+                      , Str "4"
+                      ]
+                  ]
+              ]
           ]
       ]
-      (TableFoot
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 3)
-                 [ Para
-                     [ Str "Cell"
-                     , Space
-                     , Str "in"
-                     , Space
-                     , Str "column"
-                     , Space
-                     , Str "1-3,"
-                     , Space
-                     , Str "row"
-                     , Space
-                     , Str "4"
-                     ]
-                 ]
-             ]
-         ])
+      (TableFoot ( "" , [] , [] ) [])
   , Header
       3
       ( "_csv_table" , [] , [] )
@@ -3879,19 +3850,19 @@ Pandoc
                  AlignDefault
                  (RowSpan 1)
                  (ColSpan 1)
-                 [ Para [ Str "Artist" ] ]
+                 [ Plain [ Str "Artist" ] ]
              , Cell
                  ( "" , [] , [] )
                  AlignDefault
                  (RowSpan 1)
                  (ColSpan 1)
-                 [ Para [ Str "Track" ] ]
+                 [ Plain [ Str "Track" ] ]
              , Cell
                  ( "" , [] , [] )
                  AlignDefault
                  (RowSpan 1)
                  (ColSpan 1)
-                 [ Para [ Str "Genre" ] ]
+                 [ Plain [ Str "Genre" ] ]
              ]
          ])
       [ TableBody
@@ -3905,46 +3876,44 @@ Pandoc
                   AlignDefault
                   (RowSpan 1)
                   (ColSpan 1)
-                  [ Para [ Str "Baauer" ] ]
+                  [ Plain [ Str "Baauer" ] ]
               , Cell
                   ( "" , [] , [] )
                   AlignDefault
                   (RowSpan 1)
                   (ColSpan 1)
-                  [ Para [ Str "Harlem" , Space , Str "Shake" ] ]
+                  [ Plain [ Str "Harlem" , Space , Str "Shake" ] ]
               , Cell
                   ( "" , [] , [] )
                   AlignDefault
                   (RowSpan 1)
                   (ColSpan 1)
-                  [ Para [ Str "Hip" , Space , Str "Hop" ] ]
+                  [ Plain [ Str "Hip" , Space , Str "Hop" ] ]
+              ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "The" , Space , Str "Lumineers" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "Ho" , Space , Str "Hey" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "Folk" , Space , Str "Rock" ] ]
               ]
           ]
       ]
-      (TableFoot
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "The" , Space , Str "Lumineers" ] ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Ho" , Space , Str "Hey" ] ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Folk" , Space , Str "Rock" ] ]
-             ]
-         ])
+      (TableFoot ( "" , [] , [] ) [])
   , Para [ Str "or" ]
   , Table
       ( "" , [] , [] )
@@ -3953,55 +3922,56 @@ Pandoc
       , ( AlignDefault , ColWidthDefault )
       , ( AlignDefault , ColWidthDefault )
       ]
-      (TableHead
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Artist" ] ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Track" ] ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Genre" ] ]
-             ]
-         ])
-      [ TableBody ( "" , [] , [] ) (RowHeadColumns 0) [] [] ]
-      (TableFoot
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Baauer" ] ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Harlem" , Space , Str "Shake" ] ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Hip" , Space , Str "Hop" ] ]
-             ]
-         ])
+      (TableHead ( "" , [] , [] ) [])
+      [ TableBody
+          ( "" , [] , [] )
+          (RowHeadColumns 0)
+          []
+          [ Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "Artist" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "Track" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "Genre" ] ]
+              ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "Baauer" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "Harlem" , Space , Str "Shake" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "Hip" , Space , Str "Hop" ] ]
+              ]
+          ]
+      ]
+      (TableFoot ( "" , [] , [] ) [])
   , Header
       3
       ( "_dsv_table" , [] , [] )
@@ -4013,55 +3983,56 @@ Pandoc
       , ( AlignDefault , ColWidthDefault )
       , ( AlignDefault , ColWidthDefault )
       ]
-      (TableHead
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "a" ] ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "b" ] ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "c" ] ]
-             ]
-         ])
-      [ TableBody ( "" , [] , [] ) (RowHeadColumns 0) [] [] ]
-      (TableFoot
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "d" ] ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "e" ] ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "f" ] ]
-             ]
-         ])
+      (TableHead ( "" , [] , [] ) [])
+      [ TableBody
+          ( "" , [] , [] )
+          (RowHeadColumns 0)
+          []
+          [ Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "a" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "b" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "c" ] ]
+              ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "d" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "e" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "f" ] ]
+              ]
+          ]
+      ]
+      (TableFoot ( "" , [] , [] ) [])
   , Para [ Str "or" ]
   , Table
       ( "" , [] , [] )
@@ -4070,55 +4041,56 @@ Pandoc
       , ( AlignDefault , ColWidthDefault )
       , ( AlignDefault , ColWidthDefault )
       ]
-      (TableHead
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Artist" ] ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Track" ] ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Genre" ] ]
-             ]
-         ])
-      [ TableBody ( "" , [] , [] ) (RowHeadColumns 0) [] [] ]
-      (TableFoot
-         ( "" , [] , [] )
-         [ Row
-             ( "" , [] , [] )
-             [ Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Robyn" ] ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Indestructible" ] ]
-             , Cell
-                 ( "" , [] , [] )
-                 AlignDefault
-                 (RowSpan 1)
-                 (ColSpan 1)
-                 [ Para [ Str "Dance" ] ]
-             ]
-         ])
+      (TableHead ( "" , [] , [] ) [])
+      [ TableBody
+          ( "" , [] , [] )
+          (RowHeadColumns 0)
+          []
+          [ Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "Artist" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "Track" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "Genre" ] ]
+              ]
+          , Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "Robyn" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "Indestructible" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "Dance" ] ]
+              ]
+          ]
+      ]
+      (TableFoot ( "" , [] , [] ) [])
   , Header
       2
       ( "_definition_list" , [] , [] )

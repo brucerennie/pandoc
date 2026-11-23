@@ -63,6 +63,7 @@ import Text.Pandoc.Writers.Shared (lookupMetaInlines, lookupMetaBlocks
 import qualified Data.Map as M
 import qualified Data.Set as S
 import Data.Maybe (maybeToList, fromMaybe, listToMaybe, isNothing)
+import Data.Monoid (Any(..))
 import Text.Pandoc.Highlighting
 import qualified Data.Text as T
 import Control.Applicative ((<|>))
@@ -187,6 +188,7 @@ data DocProps = DocProps { dcTitle :: Maybe T.Text
                          , dcKeywords :: Maybe [T.Text]
                          , dcDescription :: Maybe T.Text
                          , cpCategory :: Maybe T.Text
+                         , dcLanguage :: Maybe T.Text
                          , dcDate :: Maybe T.Text
                          , customProperties :: Maybe [(T.Text, T.Text)]
                          } deriving (Show, Eq)
@@ -845,11 +847,14 @@ handleAndFilterSpeakerNotes' blks = do
   return $ filter (not . isNotesDiv) blks
 
 handleAndFilterSpeakerNotes :: [Block] -> Pres ([Block], SpeakerNotes)
-handleAndFilterSpeakerNotes blks = do
-  modify $ \st -> st{stSpeakerNotes = mempty}
-  blks' <- walkM handleAndFilterSpeakerNotes' blks
-  spkNotes <- gets stSpeakerNotes
-  return (blks', spkNotes)
+handleAndFilterSpeakerNotes blks
+  -- avoid an expensive walk in the common case of no notes divs:
+  | not (getAny (query (Any . isNotesDiv) blks)) = return (blks, mempty)
+  | otherwise = do
+      modify $ \st -> st{stSpeakerNotes = mempty}
+      blks' <- walkM handleAndFilterSpeakerNotes' blks
+      spkNotes <- gets stSpeakerNotes
+      return (blks', spkNotes)
 
 blocksToSlide :: [Block] -> Pres Slide
 blocksToSlide blks = do
@@ -1165,7 +1170,7 @@ metaToDocProps meta =
                    Just (MetaList xs) -> Just $ map Shared.stringify xs
                    _                  -> Nothing
 
-      authors = case map Shared.stringify $ docAuthors meta of
+      authors = case map Shared.stringifyInlines $ docAuthors meta of
                   [] -> Nothing
                   ss -> Just $ T.intercalate "; " ss
 
@@ -1185,8 +1190,9 @@ metaToDocProps meta =
             , dcKeywords = keywords
             , dcDescription = description
             , cpCategory = Shared.stringify <$> lookupMeta "category" meta
+            , dcLanguage = Shared.stringify <$> lookupMeta "lang" meta
             , dcDate =
-              let t = Shared.stringify (docDate meta)
+              let t = Shared.stringifyInlines (docDate meta)
               in if T.null t
                  then Nothing
                  else Just t

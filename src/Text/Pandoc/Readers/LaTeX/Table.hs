@@ -11,11 +11,11 @@ import Text.Pandoc.TeX
 import Text.Pandoc.Builder as B
 import qualified Data.Map as M
 import Data.Text (Text)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe)
 import qualified Data.Text as T
 import Control.Applicative ((<|>), optional, many)
 import Control.Monad (when, void)
-import Text.Pandoc.Shared (safeRead, trim)
+import Text.Pandoc.Shared (safeRead, trim, compactifyTable)
 import Text.Pandoc.Logging (LogMessage(SkippedContent))
 import Text.Pandoc.Walk (walkM)
 import Text.Pandoc.Parsing hiding (blankline, many, mathDisplay, mathInline,
@@ -35,6 +35,9 @@ tableEnvironments block inline =
   , ("tabular*", env "tabular*" $ simpTable block inline "tabular*" True)
   , ("tabularx", env "tabularx" $ simpTable block inline "tabularx" True)
   , ("tabular", env "tabular"  $ simpTable block inline "tabular" False)
+  , ("xltabular", env "xltabular" $
+          resetCaption *>
+            simpTable block inline "xltabular" True >>= addTableCaption)
   , ("supertabular", env "supertabular" $ simpTable block inline "supertabular" False)
   , ("supertabular*", env "supertabular*" $ simpTable block inline "supertabular*" False)
   ]
@@ -52,10 +55,59 @@ hline = try $ do
       (True <$ controlSeq "toprule") <|>
       (True <$ controlSeq "bottomrule") <|>
       (True <$ controlSeq "midrule") <|>
-      (True <$ controlSeq "endhead") <|>
-      (True <$ controlSeq "endfirsthead")
+      (False <$ (controlSeq "noalign" <* spaces <* braced))
   optional rawopt
   when hasParenArg $ void $ optional (parenWrapped (() <$ singleChar))
+
+-- | The parts of a longtable before its body: the first head, the head
+-- repeated on later pages, the foot of every page but the last, and the
+-- last foot.
+data TableSection = FirstHead | RepeatedHead | Foot | LastFoot
+  deriving (Eq, Show)
+
+sectionEnd :: PandocMonad m => LP m TableSection
+sectionEnd =
+      (FirstHead <$ controlSeq "endfirsthead")
+  <|> (RepeatedHead <$ controlSeq "endhead")
+  <|> (Foot <$ controlSeq "endfoot")
+  <|> (LastFoot <$ controlSeq "endlastfoot")
+
+-- | Whether a section ends before @\\end{envname}@.
+hasSections :: Text -> [Tok] -> Bool
+hasSections envname = go
+  where
+    go (Tok _ (CtrlSeq c) _ : rest)
+      | c `elem` ["endfirsthead", "endhead", "endfoot", "endlastfoot"] = True
+      | c == "end", Tok _ Symbol "{" : rest' <- rest
+      , untokenize (takeWhile (not . isRbrace) rest') == envname = False
+    go (_ : rest) = go rest
+    go [] = False
+    isRbrace (Tok _ Symbol "}") = True
+    isRbrace _ = False
+
+-- | A head or foot section, the rows in it, and the caption and label
+-- set when it ends. Rules and empty lines in it are skipped.
+tableSection :: PandocMonad m
+             => LP m Inlines -> LP m Row
+             -> LP m (TableSection, ([Row], (Maybe Caption, Maybe Text)))
+tableSection inline row = try $ do
+  let caption' = try $ do
+        spaces
+        controlSeq "caption" *> setCaption inline
+        spaces
+        optional label
+        spaces
+        optional lbreak
+  let item = (Nothing <$ caption')
+         <|> (Nothing <$ hline)
+         <|> (Nothing <$ try (spaces *> lbreak))
+         <|> (Just <$> try (spaces *> notFollowedBy sectionEnd
+                              *> row <* lbreak))
+  rows <- catMaybes <$> many item
+  spaces
+  kind <- sectionEnd
+  st <- getState
+  return (kind, (rows, (sCaption st, sLastLabel st)))
 
 lbreak :: PandocMonad m => LP m Tok
 lbreak = (controlSeq "\\" <|> controlSeq "tabularnewline")
@@ -147,6 +199,9 @@ parseTableRow block inline envname prefsufs = do
   let canContainAmp (Tok _ (CtrlSeq "begin") _) = True
       canContainAmp (Tok _ (CtrlSeq "verb") _)  = True
       canContainAmp (Tok _ (CtrlSeq "Verb") _)  = True
+      canContainAmp (Tok _ (CtrlSeq "url") _)  = True
+      canContainAmp (Tok _ (CtrlSeq "href") _)  = True
+      canContainAmp (Tok _ (CtrlSeq "nolinkurl") _)  = True
       canContainAmp _       = False
   -- add prefixes and suffixes in token stream:
   let celltoks (pref, suff) = do
@@ -190,12 +245,16 @@ parseTableCell block = do
     -- The parsing of empty cells is important in LaTeX, especially when dealing
     -- with multirow/multicolumn. See #6603.
     parseEmptyCell = spaces $> emptyCell
-    parseSimpleCell = simpleCell <$> (plainify . mconcat <$> many block)
+    parseSimpleCell = simpleCell . mconcat <$> many block
 
 
 cellAlignment :: PandocMonad m => LP m Alignment
-cellAlignment = skipMany (symbol '|') *> alignment <* skipMany (symbol '|')
+cellAlignment = skipMany decoration *> alignment <* skipMany decoration
   where
+    decoration = try $ spaces *>
+      (() <$ symbol '|' <|>
+       () <$ ((symbol '@' <|> symbol '!' <|> symbol '>' <|> symbol '<')
+              *> spaces *> braced))
     alignment = do
       c <- untoken <$> singleChar <* optional braced -- ignore args
       return $ case c of
@@ -205,32 +264,32 @@ cellAlignment = skipMany (symbol '|') *> alignment <* skipMany (symbol '|')
         "*" -> AlignDefault
         _   -> AlignDefault
 
-plainify :: Blocks -> Blocks
-plainify bs = case toList bs of
-                [Para ils] -> plain (fromList ils)
-                _          -> bs
-
 multirowCell :: PandocMonad m => LP m Blocks -> LP m Cell
 multirowCell block = controlSeq "multirow" >> do
   -- Full prototype for \multirow macro is:
   --     \multirow[vpos]{nrows}[bigstruts]{width}[vmove]{text}
   -- However, everything except `nrows` and `text` make
   -- sense in the context of the Pandoc AST
-  _ <- optional $ symbol '[' *> cellAlignment <* symbol ']'   -- vertical position
+  _ <- optional $ argOpen '[' *> cellAlignment <* symbol ']'  -- vertical position
   nrows <- fmap (fromMaybe 1 . safeRead . untokenize) braced
-  _ <- optional $ symbol '[' *> manyTill anyTok (symbol ']')  -- bigstrut-related
-  _ <- symbol '{' *> manyTill anyTok (symbol '}')             -- Cell width
-  _ <- optional $ symbol '[' *> manyTill anyTok (symbol ']')  -- Length used for fine-tuning
-  content <- symbol '{' *> (plainify . mconcat <$> many block) <* symbol '}'
+  _ <- optional bracketedToks                                 -- bigstrut-related
+  _ <- braced                                                 -- Cell width
+  _ <- optional bracketedToks                                 -- Length used for fine-tuning
+  content <- argOpen '{' *> (mconcat <$> many block) <* symbol '}'
   return $ cell AlignDefault (RowSpan nrows) (ColSpan 1) content
+
+-- | The opening delimiter of an argument, which (as in TeX) may be
+-- preceded by spaces and a single newline.
+argOpen :: PandocMonad m => Char -> LP m Tok
+argOpen c = try (sp *> symbol c)
 
 multicolumnCell :: PandocMonad m => LP m Blocks -> LP m Cell
 multicolumnCell block = controlSeq "multicolumn" >> do
   span' <- fmap (fromMaybe 1 . safeRead . untokenize) braced
-  alignment <- symbol '{' *> cellAlignment <* symbol '}'
+  alignment <- argOpen '{' *> cellAlignment <* symbol '}'
 
   let singleCell = do
-        content <- plainify . mconcat <$> many block
+        content <- mconcat <$> many block
         return $ cell alignment (RowSpan 1) (ColSpan span') content
 
   -- Two possible contents: either a \multirow cell, or content.
@@ -245,7 +304,7 @@ multicolumnCell block = controlSeq "multicolumn" >> do
                   (ColSpan span')
                   (fromList bs)
 
-  symbol '{' *> (nestedCell <|> singleCell) <* symbol '}'
+  argOpen '{' *> (nestedCell <|> singleCell) <* symbol '}'
 
 -- LaTeX tables are stored with empty cells underneath multirow cells
 -- denoting the grid spaces taken up by them. More specifically, if a
@@ -332,6 +391,7 @@ simpTable block inline envname hasWidthParameter = try $ do
   skipopts
   colspecs <- parseAligns
   let (aligns, widths, prefsufs) = unzip3 colspecs
+  let row = parseTableRow block inline envname prefsufs
   optional $ controlSeq "caption" *> setCaption inline
   spaces
   optional label
@@ -340,12 +400,28 @@ simpTable block inline envname hasWidthParameter = try $ do
   spaces
   skipMany hline
   spaces
-  header' <- option [] . try . fmap (:[]) $
-             parseTableRow block inline envname prefsufs <*
-               lbreak <* many1 hline
+  before <- (\st -> (sCaption st, sLastLabel st)) <$> getState
+  TokStream _ toks <- getInput
+  sections <- if hasSections envname toks
+                 then many (tableSection inline row)
+                 else return []
+  -- The caption of the first head is the table's; a caption in another
+  -- section repeats it.
+  let (caption', label') = case lookup FirstHead sections of
+        Just (_, captioned) -> captioned
+        Nothing -> foldl firstJust before (map (snd . snd) sections)
+      firstJust (c, l) (c', l') = (c <|> c', l <|> l')
+  updateState $ \st -> st{ sCaption = caption', sLastLabel = label' }
+  let sectionRows k = fst <$> lookup k sections
+  let sectionHead = sectionRows FirstHead <|> sectionRows RepeatedHead
+  let footRows = fromMaybe [] $ sectionRows LastFoot <|> sectionRows Foot
   spaces
-  rows <- sepEndBy (parseTableRow block inline envname prefsufs)
-                    (lbreak <* optional (skipMany hline))
+  header' <- case sectionHead of
+    Just rows' -> return rows'
+    Nothing -> option [] . try . fmap (:[]) $
+                 row <* lbreak <* many1 hline
+  spaces
+  rows <- sepEndBy row (lbreak <* optional (skipMany hline))
   spaces
   optional $ controlSeq "caption" *> setCaption inline
   spaces
@@ -356,8 +432,9 @@ simpTable block inline envname hasWidthParameter = try $ do
   lookAhead $ controlSeq "end" -- make sure we're at end
   let th  = fixTableHead $ TableHead nullAttr header'
   let tbs = [fixTableBody $ TableBody nullAttr 0 [] rows]
-  let tf  = TableFoot nullAttr []
-  return $ table emptyCaption (zip aligns widths) th tbs tf
+  let tf  = TableFoot nullAttr (fixTableRows footRows)
+  return $ compactifyTable
+         $ table emptyCaption (zip aligns widths) th tbs tf
 
 addTableCaption :: PandocMonad m => Blocks -> LP m Blocks
 addTableCaption = walkM go

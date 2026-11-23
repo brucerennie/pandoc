@@ -88,49 +88,49 @@ Pandoc
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para [ Math InlineMath "F_{1}" ] ]
+                      [ Plain [ Math InlineMath "F_{1}" ] ]
                   , Cell
                       ( "" , [] , [] )
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para [ Math InlineMath "F_{2}" ] ]
+                      [ Plain [ Math InlineMath "F_{2}" ] ]
                   , Cell
                       ( "" , [] , [] )
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para [ Math InlineMath "F_{3}" ] ]
+                      [ Plain [ Math InlineMath "F_{3}" ] ]
                   , Cell
                       ( "" , [] , [] )
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para [ Math InlineMath "F_{4}" ] ]
+                      [ Plain [ Math InlineMath "F_{4}" ] ]
                   , Cell
                       ( "" , [] , [] )
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para [ Math InlineMath "F_{5}" ] ]
+                      [ Plain [ Math InlineMath "F_{5}" ] ]
                   , Cell
                       ( "" , [] , [] )
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para [ Math InlineMath "F_{6}" ] ]
+                      [ Plain [ Math InlineMath "F_{6}" ] ]
                   , Cell
                       ( "" , [] , [] )
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para [ Math InlineMath "F_{7}" ] ]
+                      [ Plain [ Math InlineMath "F_{7}" ] ]
                   , Cell
                       ( "" , [] , [] )
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para [ Math InlineMath "F_{8}" ] ]
+                      [ Plain [ Math InlineMath "F_{8}" ] ]
                   ]
               , Row
                   ( "" , [] , [] )
@@ -139,54 +139,182 @@ Pandoc
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para [ Str "1" ] ]
+                      [ Plain [ Str "1" ] ]
                   , Cell
                       ( "" , [] , [] )
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para [ Str "1" ] ]
+                      [ Plain [ Str "1" ] ]
                   , Cell
                       ( "" , [] , [] )
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para [ Str "2" ] ]
+                      [ Plain [ Str "2" ] ]
                   , Cell
                       ( "" , [] , [] )
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para [ Str "3" ] ]
+                      [ Plain [ Str "3" ] ]
                   , Cell
                       ( "" , [] , [] )
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para [ Str "5" ] ]
+                      [ Plain [ Str "5" ] ]
                   , Cell
                       ( "" , [] , [] )
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para [ Str "8" ] ]
+                      [ Plain [ Str "8" ] ]
                   , Cell
                       ( "" , [] , [] )
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para [ Str "13" ] ]
+                      [ Plain [ Str "13" ] ]
                   , Cell
                       ( "" , [] , [] )
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para [ Str "21" ] ]
+                      [ Plain [ Str "21" ] ]
                   ]
               ]
           ]
           (TableFoot ( "" , [] , [] ) [])
       ]
+  , Table
+      ( "" , [] , [] )
+      (Caption Nothing [])
+      [ ( AlignDefault , ColWidthDefault )
+      , ( AlignDefault , ColWidthDefault )
+      , ( AlignDefault , ColWidthDefault )
+      , ( AlignDefault , ColWidthDefault )
+      ]
+      (TableHead ( "" , [] , [] ) [])
+      [ TableBody
+          ( "" , [] , [] )
+          (RowHeadColumns 0)
+          []
+          [ Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "1" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "A"
+                      , Space
+                      , Str "longer"
+                      , Space
+                      , Str "descriptive"
+                      , Space
+                      , Str "label"
+                      , Space
+                      , Str "that"
+                      , Space
+                      , Str "wraps"
+                      ]
+                  ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "2" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain
+                      [ Str "Another"
+                      , Space
+                      , Str "longer"
+                      , Space
+                      , Str "label"
+                      ]
+                  ]
+              ]
+          ]
+      ]
+      (TableFoot ( "" , [] , [] ) [])
+  , Table
+      ( "" , [] , [] )
+      (Caption Nothing [])
+      [ ( AlignDefault , ColWidth 0.25 )
+      , ( AlignDefault , ColWidth 0.25 )
+      , ( AlignDefault , ColWidth 0.5 )
+      ]
+      (TableHead ( "" , [] , [] ) [])
+      [ TableBody
+          ( "" , [] , [] )
+          (RowHeadColumns 0)
+          []
+          [ Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "a" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "b" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "c" ] ]
+              ]
+          ]
+      ]
+      (TableFoot ( "" , [] , [] ) [])
+  , Table
+      ( "" , [] , [] )
+      (Caption Nothing [])
+      [ ( AlignDefault , ColWidthDefault )
+      , ( AlignDefault , ColWidthDefault )
+      ]
+      (TableHead ( "" , [] , [] ) [])
+      [ TableBody
+          ( "" , [] , [] )
+          (RowHeadColumns 0)
+          []
+          [ Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "d" ] ]
+              , Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "e" ] ]
+              ]
+          ]
+      ]
+      (TableFoot ( "" , [] , [] ) [])
   , Div
       ( "" , [ "columns-flow" ] , [ ( "count" , "2" ) ] )
       [ Para
@@ -204,11 +332,11 @@ Pandoc
                       , Space
                       , Str "Undergrads"
                       ]
-                  , SoftBreak
                   ]
                   ( "https://github.com/johanvx/typst-undergradmath"
                   , ""
                   )
+              , SoftBreak
               ]
           ]
       , Para
@@ -227,8 +355,8 @@ Pandoc
           , Emph
               [ Span
                   ( "" , [ "box" ] , [] )
-                  [ Str "L\8202A\8202"
-                  , Span ( "" , [ "box" ] , [] ) [ Str "T\8202E\8202X" ]
+                  [ Str "L\8203A\8203"
+                  , Span ( "" , [ "box" ] , [] ) [ Str "T\8203E\8203X" ]
                   ]
               , Space
               , Str "Math"
@@ -294,7 +422,7 @@ Pandoc
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para
+                      [ Plain
                           [ Span
                               ( "" , [ "box" ] , [] )
                               [ Str "2023-05-22"
@@ -308,7 +436,7 @@ Pandoc
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para
+                      [ Plain
                           [ Str "This"
                           , Space
                           , Str "is"
@@ -349,7 +477,7 @@ Pandoc
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para
+                      [ Plain
                           [ Span
                               ( "" , [ "box" ] , [] ) [ Str "\128166" ]
                           ]
@@ -359,7 +487,7 @@ Pandoc
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para
+                      [ Plain
                           [ Str "Get"
                           , Space
                           , Str "this"
@@ -404,7 +532,7 @@ Pandoc
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para
+                      [ Plain
                           [ Span
                               ( "" , [ "box" ] , [] )
                               [ Str "No"
@@ -420,7 +548,7 @@ Pandoc
                       AlignDefault
                       (RowSpan 1)
                       (ColSpan 1)
-                      [ Para
+                      [ Plain
                           [ Str "Don\8217t"
                           , Space
                           , Str "know"
@@ -558,7 +686,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "x^{2}"
@@ -572,7 +700,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\sqrt{2}"
@@ -595,7 +723,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "x_{i,j}"
@@ -609,7 +737,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\frac{2}{3}"
@@ -683,7 +811,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\alpha"
@@ -697,7 +825,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\xi"
@@ -720,7 +848,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\beta"
@@ -734,7 +862,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\959"
@@ -751,7 +879,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\gamma"
@@ -771,7 +899,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\pi"
@@ -794,7 +922,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\delta"
@@ -814,7 +942,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\varpi"
@@ -831,7 +959,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\epsilon"
@@ -845,7 +973,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\rho"
@@ -862,7 +990,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\varepsilon"
@@ -876,7 +1004,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\varrho"
@@ -893,7 +1021,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\zeta"
@@ -907,7 +1035,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\sigma"
@@ -930,7 +1058,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\eta"
@@ -944,7 +1072,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\varsigma"
@@ -966,7 +1094,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\theta"
@@ -986,7 +1114,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\tau"
@@ -1003,7 +1131,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\vartheta"
@@ -1017,7 +1145,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\upsilon"
@@ -1040,7 +1168,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\iota"
@@ -1054,7 +1182,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\phi"
@@ -1077,7 +1205,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\kappa"
@@ -1091,7 +1219,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\varphi"
@@ -1108,7 +1236,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\lambda"
@@ -1128,7 +1256,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\chi"
@@ -1145,7 +1273,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\mu"
@@ -1159,7 +1287,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\psi"
@@ -1182,7 +1310,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\nu"
@@ -1196,7 +1324,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\omega"
@@ -1246,7 +1374,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\cup"
@@ -1260,7 +1388,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\mathbb{R}"
@@ -1277,7 +1405,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\forall"
@@ -1294,7 +1422,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\cap"
@@ -1308,7 +1436,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\mathbb{Z}"
@@ -1325,7 +1453,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\exists"
@@ -1342,7 +1470,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\subset"
@@ -1356,7 +1484,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\mathbb{Q}"
@@ -1373,7 +1501,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\neg"
@@ -1390,7 +1518,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\subseteq"
@@ -1404,7 +1532,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\mathbb{N}"
@@ -1421,7 +1549,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\vee"
@@ -1438,7 +1566,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\supset"
@@ -1452,7 +1580,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\mathbb{C}"
@@ -1469,7 +1597,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\land"
@@ -1486,7 +1614,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\supseteq"
@@ -1500,7 +1628,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\varnothing"
@@ -1514,7 +1642,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\vdash"
@@ -1531,7 +1659,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\in"
@@ -1545,7 +1673,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\varnothing"
@@ -1559,7 +1687,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\models"
@@ -1576,7 +1704,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\notin"
@@ -1590,7 +1718,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\1488"
@@ -1604,7 +1732,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\smallsetminus"
@@ -1692,10 +1820,10 @@ Pandoc
                     , Space
                     , Span
                         ( "" , [ "box" ] , [] )
-                        [ Str "L\8202A\8202"
+                        [ Str "L\8203A\8203"
                         , Span
                             ( "" , [ "box" ] , [] )
-                            [ Str "T\8202E\8202X" ]
+                            [ Str "T\8203E\8203X" ]
                         ]
                     , Space
                     , Str "also"
@@ -1814,7 +1942,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "f'"
@@ -1831,7 +1959,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\dot{a}"
@@ -1845,10 +1973,10 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
-                                  [ Math InlineMath "\\widetilde{a}"
+                                  [ Math InlineMath "\\tilde{a}"
                                   , Str "\8192"
                                   , Code ( "" , [] , [] ) "tilde(a)"
                                   ]
@@ -1862,7 +1990,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "f''"
@@ -1877,7 +2005,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\ddot{a}"
@@ -1891,7 +2019,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\overline{a}"
@@ -1908,7 +2036,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\Sigma^{\\ast}"
@@ -1922,7 +2050,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\hat{a}"
@@ -1936,7 +2064,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math
@@ -2181,7 +2309,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\sin"
@@ -2195,7 +2323,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\sinh"
@@ -2209,7 +2337,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\arcsin"
@@ -2226,7 +2354,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\cos"
@@ -2240,7 +2368,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\cosh"
@@ -2254,7 +2382,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\arccos"
@@ -2271,7 +2399,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\tan"
@@ -2285,7 +2413,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\tanh"
@@ -2299,7 +2427,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\arctan"
@@ -2316,7 +2444,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\sec"
@@ -2330,7 +2458,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\coth"
@@ -2344,7 +2472,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\min"
@@ -2361,7 +2489,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\csc"
@@ -2375,7 +2503,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\det"
@@ -2389,7 +2517,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\max"
@@ -2406,7 +2534,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\cot"
@@ -2420,7 +2548,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\dim"
@@ -2434,7 +2562,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\inf"
@@ -2451,7 +2579,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\exp"
@@ -2465,7 +2593,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\ker"
@@ -2479,7 +2607,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\sup"
@@ -2496,7 +2624,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\log"
@@ -2510,7 +2638,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\deg"
@@ -2524,7 +2652,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\liminf"
@@ -2541,7 +2669,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\ln"
@@ -2555,7 +2683,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\arg"
@@ -2569,7 +2697,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\limsup"
@@ -2586,7 +2714,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\lg"
@@ -2600,7 +2728,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\gcd"
@@ -2614,7 +2742,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\lim"
@@ -2651,7 +2779,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "<"
@@ -2668,7 +2796,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\angle"
@@ -2682,7 +2810,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\cdot"
@@ -2699,7 +2827,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\leq"
@@ -2716,7 +2844,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\measuredangle"
@@ -2730,7 +2858,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\pm"
@@ -2747,7 +2875,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath ">"
@@ -2764,7 +2892,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\ell"
@@ -2778,7 +2906,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\mp"
@@ -2795,7 +2923,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\geq"
@@ -2812,7 +2940,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\parallel"
@@ -2826,7 +2954,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\times"
@@ -2843,7 +2971,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\neq"
@@ -2860,7 +2988,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "45{^\\circ}"
@@ -2874,7 +3002,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\div"
@@ -2891,7 +3019,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\ll"
@@ -2908,7 +3036,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\cong"
@@ -2922,7 +3050,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\ast"
@@ -2942,7 +3070,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\gg"
@@ -2959,7 +3087,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\ncong"
@@ -2974,7 +3102,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\mid"
@@ -2991,7 +3119,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\approx"
@@ -3005,7 +3133,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\sim"
@@ -3019,7 +3147,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\nmid"
@@ -3036,7 +3164,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\asymp"
@@ -3055,7 +3183,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\simeq"
@@ -3069,7 +3197,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "n!"
@@ -3086,7 +3214,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\equiv"
@@ -3100,7 +3228,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\nsim"
@@ -3114,7 +3242,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\partial"
@@ -3131,7 +3259,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\prec"
@@ -3145,7 +3273,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\oplus"
@@ -3159,7 +3287,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\nabla"
@@ -3176,7 +3304,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\preceq"
@@ -3190,7 +3318,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\ominus"
@@ -3204,7 +3332,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\295"
@@ -3221,7 +3349,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\succ"
@@ -3235,7 +3363,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\odot"
@@ -3249,7 +3377,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\circ"
@@ -3268,7 +3396,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\succeq"
@@ -3282,7 +3410,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\otimes"
@@ -3296,7 +3424,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\star"
@@ -3313,7 +3441,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\propto"
@@ -3327,7 +3455,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\oslash"
@@ -3346,7 +3474,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\sqrt{}"
@@ -3363,7 +3491,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\doteq"
@@ -3382,7 +3510,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\upharpoonright"
@@ -3396,7 +3524,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\10003"
@@ -3483,7 +3611,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\rightarrow"
@@ -3500,7 +3628,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\mapsto"
@@ -3520,7 +3648,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\nrightarrow"
@@ -3534,7 +3662,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\longmapsto"
@@ -3553,7 +3681,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\longrightarrow"
@@ -3567,7 +3695,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\leftarrow"
@@ -3587,7 +3715,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\Rightarrow"
@@ -3605,7 +3733,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math
@@ -3627,7 +3755,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\nRightarrow"
@@ -3643,7 +3771,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\downarrow"
@@ -3660,7 +3788,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\Longrightarrow"
@@ -3676,7 +3804,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\uparrow"
@@ -3693,7 +3821,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\rightsquigarrow"
@@ -3708,7 +3836,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\updownarrow"
@@ -3837,7 +3965,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\int"
@@ -3851,7 +3979,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\iiint"
@@ -3866,7 +3994,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\bigcup"
@@ -3883,7 +4011,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\iint"
@@ -3898,7 +4026,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\oint"
@@ -3913,7 +4041,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\bigcap"
@@ -3949,7 +4077,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "()"
@@ -3963,7 +4091,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\langle\\rangle"
@@ -3979,7 +4107,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math
@@ -3997,7 +4125,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math InlineMath "\\lbrack\\rbrack"
@@ -4011,7 +4139,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math
@@ -4027,7 +4155,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math
@@ -4046,7 +4174,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math
@@ -4061,7 +4189,7 @@ Pandoc
                           AlignDefault
                           (RowSpan 1)
                           (ColSpan 1)
-                          [ Para
+                          [ Plain
                               [ Span
                                   ( "" , [ "box" ] , [] )
                                   [ Math
@@ -4466,8 +4594,8 @@ Pandoc
           , Space
           , Span
               ( "" , [ "box" ] , [] )
-              [ Str "L\8202A\8202"
-              , Span ( "" , [ "box" ] , [] ) [ Str "T\8202E\8202X" ]
+              [ Str "L\8203A\8203"
+              , Span ( "" , [ "box" ] , [] ) [ Str "T\8203E\8203X" ]
               ]
           , Str ","
           , Space
@@ -4696,8 +4824,8 @@ Pandoc
           , Space
           , Span
               ( "" , [ "box" ] , [] )
-              [ Str "L\8202A\8202"
-              , Span ( "" , [ "box" ] , [] ) [ Str "T\8202E\8202X" ]
+              [ Str "L\8203A\8203"
+              , Span ( "" , [ "box" ] , [] ) [ Str "T\8203E\8203X" ]
               ]
           , Space
           , Str "and"
@@ -5341,9 +5469,220 @@ Pandoc
               ]
           , Str ")"
           , Space
-          , Str "\8202\8193"
+          , Str "\8193"
           , Space
           , Str "2023-05-22"
           ]
+      ]
+  , Header 1 ( "" , [] , [] ) [ Str "Citations" ]
+  , Para
+      [ Str "Normal:"
+      , Space
+      , Cite
+          [ Citation
+              { citationId = "brown01"
+              , citationPrefix = []
+              , citationSuffix = []
+              , citationMode = NormalCitation
+              , citationNoteNum = 0
+              , citationHash = 0
+              }
+          ]
+          [ Str "[brown01]" ]
+      , Space
+      , Str "or"
+      , Space
+      , Cite
+          [ Citation
+              { citationId = "brown01"
+              , citationPrefix = []
+              , citationSuffix = []
+              , citationMode = NormalCitation
+              , citationNoteNum = 0
+              , citationHash = 0
+              }
+          ]
+          [ Str "[brown01]" ]
+      , Str "."
+      ]
+  , Para
+      [ Str "Prose:"
+      , Space
+      , Cite
+          [ Citation
+              { citationId = "brown01"
+              , citationPrefix = []
+              , citationSuffix = []
+              , citationMode = AuthorInText
+              , citationNoteNum = 0
+              , citationHash = 0
+              }
+          ]
+          [ Str "[brown01]" ]
+      ]
+  , Para
+      [ Str "Year:"
+      , Space
+      , Cite
+          [ Citation
+              { citationId = "brown01"
+              , citationPrefix = []
+              , citationSuffix = []
+              , citationMode = SuppressAuthor
+              , citationNoteNum = 0
+              , citationHash = 0
+              }
+          ]
+          [ Str "[brown01]" ]
+      ]
+  , Para
+      [ Str "Author:"
+      , Space
+      , Cite
+          [ Citation
+              { citationId = "brown01"
+              , citationPrefix = []
+              , citationSuffix = []
+              , citationMode = NormalCitation
+              , citationNoteNum = 0
+              , citationHash = 0
+              }
+          ]
+          [ Str "[brown01]" ]
+      ]
+  , Header
+      1
+      ( "" , [] , [] )
+      [ Str "Inline"
+      , Space
+      , Str "elements"
+      , Space
+      , Str "across"
+      , Space
+      , Str "paragraphs"
+      ]
+  , Para [ Emph [ Str "hi" ] ]
+  , Para [ Emph [ Str "there" ] ]
+  , Para [ Str "Hello" , Space , Strong [ Str "again" ] ]
+  , Para
+      [ Strong [ Str "and" , Space , Str "again" ]
+      , Space
+      , Str "world."
+      ]
+  , Para [ Underline [ Str "Para" , Space , Str "one." ] ]
+  , Para [ Underline [ Str "Para" , Space , Str "two." ] ]
+  , Header
+      2
+      ( "" , [] , [] )
+      [ SmallCaps [ Str "smallcaps" , Space , Str "heading" ] ]
+  , Header
+      1
+      ( "" , [] , [] )
+      [ Str "More"
+      , Space
+      , Str "inline"
+      , Space
+      , Str "elements"
+      , Space
+      , Str "across"
+      , Space
+      , Str "paragraphs"
+      ]
+  , Para
+      [ Link
+          ( "" , [] , [] )
+          [ Str "link" , Space , Str "one" ]
+          ( "https://example.com/typst" , "" )
+      ]
+  , Para
+      [ Link
+          ( "" , [] , [] )
+          [ Str "link" , Space , Str "two" ]
+          ( "https://example.com/typst" , "" )
+      ]
+  , Para [ Emph [ Str "hi" , Space ] ]
+  , Para [ Emph [ Str "struck" , Space , Str "middle" ] ]
+  , Para [ Emph [ Space , Str "there" ] ]
+  , Para [ Str "mixed" , Space , Str "case" ]
+  , Para [ Str "also" , Space , Str "here" ]
+  , DefinitionList
+      [ ( [ Str "term" ]
+        , [ [ Para [ Emph [ Str "term" , Space , Str "one" ] ]
+            , Para [ Emph [ Str "term" , Space , Str "two" ] ]
+            ]
+          ]
+        )
+      ]
+  , Para [ Str "Edge" , Space , Str "case" ]
+  , Para
+      [ Emph [ Str "split" , Space , Str "here" ]
+      , Space
+      , Str "continues."
+      ]
+  , Header
+      1
+      ( "" , [] , [] )
+      [ Str "Splitting"
+      , Space
+      , Str "edge"
+      , Space
+      , Str "cases"
+      ]
+  , Para [ Span ( "edge-label" , [] , [] ) [] ]
+  , Para
+      [ Str "Trailing"
+      , Space
+      , Str "edge"
+      , Space
+      , Emph [ Str "splits" ]
+      ]
+  , Para [ Emph [ Str "here" ] , Space , Str "continues." ]
+  , Para
+      [ Str "Consecutive"
+      , Space
+      , Str "breaks"
+      , Space
+      , Emph [ Str "a" ]
+      ]
+  , Para [ Emph [ Str "b" ] , Space , Str "end." ]
+  , Para [ Str "Vanishing" ]
+  , Para [ Str "body." ]
+  , Para
+      [ Emph [ Underline [ Str "nested" , Space , Str "one" ] ] ]
+  , Para
+      [ Emph [ Underline [ Str "nested" , Space , Str "two" ] ] ]
+  , Para [ Emph [ Str "a" , Space ] ]
+  , Table
+      ( "" , [] , [] )
+      (Caption Nothing [])
+      [ ( AlignDefault , ColWidthDefault ) ]
+      (TableHead ( "" , [] , [] ) [])
+      [ TableBody
+          ( "" , [] , [] )
+          (RowHeadColumns 0)
+          []
+          [ Row
+              ( "" , [] , [] )
+              [ Cell
+                  ( "" , [] , [] )
+                  AlignDefault
+                  (RowSpan 1)
+                  (ColSpan 1)
+                  [ Plain [ Str "cell" ] ]
+              ]
+          ]
+      ]
+      (TableFoot ( "" , [] , [] ) [])
+  , Para [ Emph [ Space , Str "c" ] ]
+  , Para
+      [ Str "Ref"
+      , Space
+      , Str "supplement:"
+      , Space
+      , Link
+          ( "" , [ "ref" ] , [] )
+          [ Str "see" , Space , Str "this" , Space , Str "section" ]
+          ( "#edge-label" , "" )
+      , Str "."
       ]
   ]

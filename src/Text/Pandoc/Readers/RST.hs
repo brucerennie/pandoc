@@ -18,10 +18,11 @@ import Control.Arrow (second)
 import Control.Monad (forM_, guard, liftM, mplus, mzero, when, unless, void)
 import Control.Monad.Except (throwError)
 import Control.Monad.Identity (Identity (..))
-import Data.Char (isHexDigit, isSpace, toUpper, isAlphaNum, generalCategory,
+import Data.Char (isDigit, isHexDigit, isSpace, toUpper, isAlphaNum,
+                  generalCategory,
                   GeneralCategory(OpenPunctuation, InitialQuote, FinalQuote,
                                   DashPunctuation, OtherSymbol))
-import Data.List (deleteFirstsBy, elemIndex, nub, partition, sort, transpose)
+import Data.List (elemIndex, partition, sort, transpose)
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe, maybeToList, isJust, isNothing, catMaybes)
 import Data.Sequence (ViewR (..), viewr)
@@ -45,6 +46,7 @@ import Text.Pandoc.Walk (walkM)
 import qualified Text.Pandoc.UTF8 as UTF8
 import Data.Time.Format
 import System.FilePath (takeDirectory)
+import Data.Containers.ListUtils (nubOrd)
 
 -- TODO:
 -- [ ] .. parsed-literal
@@ -74,8 +76,35 @@ underlineChars :: [Char]
 underlineChars = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
 
 -- treat these as potentially non-text when parsing inline:
-specialChars :: [Char]
-specialChars = "\\`|*_<>$:/[]{}()-.\"'\8216\8217\8220\8221"
+-- (equivalent to the character class "\\`|*_<>$:/[]{}()-.\"'\8216\8217\8220\8221")
+isSpecialChar :: Char -> Bool
+isSpecialChar c =
+  case c of
+    '\\' -> True
+    '`'  -> True
+    '|'  -> True
+    '*'  -> True
+    '_'  -> True
+    '<'  -> True
+    '>'  -> True
+    '$'  -> True
+    ':'  -> True
+    '/'  -> True
+    '['  -> True
+    ']'  -> True
+    '{'  -> True
+    '}'  -> True
+    '('  -> True
+    ')'  -> True
+    '-'  -> True
+    '.'  -> True
+    '"'  -> True
+    '\'' -> True
+    '\8216' -> True
+    '\8217' -> True
+    '\8220' -> True
+    '\8221' -> True
+    _    -> False
 
 --
 -- parsing documents
@@ -120,8 +149,10 @@ metaFromDefList :: [([Inline], [[Block]])] -> Meta -> Meta
 metaFromDefList ds meta = adjustAuthors $ foldr f meta ds
  where f (k,v) =
          case v of
-           [[Plain ils]] ->  setMeta (T.toLower (stringify k)) $ MetaInlines ils
-           _ -> setMeta (T.toLower (stringify k)) $ mconcat $ map fromList v
+           [[Plain ils]] ->  setMeta (T.toLower (stringifyInlines k)) $
+                                MetaInlines ils
+           _ -> setMeta (T.toLower (stringifyInlines k)) $
+                  mconcat $ map fromList v
        adjustAuthors (Meta metamap) = Meta $ M.adjust splitAuthors "author"
                                            $ M.mapKeys (\k ->
                                                  if k == "authors"
@@ -162,9 +193,15 @@ parseRST = do
   let (blocks', meta') = if standalone
                             then titleTransform (blocks, meta)
                             else (blocks, meta)
-  let reversedNotes = stateNotes state
-  updateState $ \s -> s { stateNotes = reverse reversedNotes }
-  doc <- walkM resolveReferences =<<
+  let notes = reverse $ stateNotes state
+  -- Named notes are never removed, so we can look them up in a Map;
+  -- auto-numbered notes are consumed in order of occurrence, so we
+  -- keep them in a list (in stateNotes):
+  let isAutoNote (r, _) = r == "*" || r == "#"
+  let namedNotes = M.fromList $ reverse $ filter (not . isAutoNote) notes
+        -- reverse, so that the first occurrence of a label wins
+  updateState $ \s -> s { stateNotes = filter isAutoNote notes }
+  doc <- walkM (resolveReferences namedNotes) =<<
          walkM resolveBlockSubstitutions
          (Pandoc meta' (blocks' ++ refBlock))
   reportLogMessages
@@ -186,22 +223,27 @@ resolveBlockSubstitutions (Para [Link _attr ils (s,_)])
                    bls -> return $ Div nullAttr bls
 resolveBlockSubstitutions x = return x
 
-resolveReferences :: PandocMonad m => Inline -> RSTParser m Inline
-resolveReferences = resolveReferences' Set.empty
+resolveReferences :: PandocMonad m
+                  => M.Map Text Text  -- ^ named notes
+                  -> Inline -> RSTParser m Inline
+resolveReferences namedNotes = resolveReferences' namedNotes Set.empty
 
-resolveReferences' :: PandocMonad m => Set.Set Key -> Inline -> RSTParser m Inline
-resolveReferences' seen x@(Link _ ils (s,_))
+resolveReferences' :: PandocMonad m
+                   => M.Map Text Text -> Set.Set Key -> Inline
+                   -> RSTParser m Inline
+resolveReferences' namedNotes seen x@(Link _ ils (s,_))
   | Just ref <- T.stripPrefix "##REF##" s = do
       let isAnonKey (Key (T.uncons -> Just ('_',_))) = True
           isAnonKey _                                = False
       state <- getState
       let keyTable = stateKeys state
-      let anonKeys = sort $ filter isAnonKey $ M.keys keyTable
       key <-  if ref == "_" -- anonymous key
                 then
-                  case anonKeys of
-                    []    -> mzero -- TODO log?
-                    (k:_) -> return k
+                  -- anonymous keys are named _0000, _0001, ... so the
+                  -- next one to use is the smallest key >= "_":
+                  case M.lookupGE (Key "_") keyTable of
+                    Just (k, _) | isAnonKey k -> return k
+                    _                         -> mzero -- TODO log?
                 else return $ toKey ref
       if key `Set.member` seen
          then do
@@ -213,27 +255,31 @@ resolveReferences' seen x@(Link _ ils (s,_))
            ((src,tit), attr) <- lookupKey [] key
            when (isAnonKey key) $ updateState $ \st ->
                                    st{ stateKeys = M.delete key keyTable }
-           resolveReferences' (Set.insert key seen) (Link attr ils (src, tit))
+           resolveReferences' namedNotes (Set.insert key seen)
+             (Link attr ils (src, tit))
   | Just ref <- T.stripPrefix "##NOTE##" s = do
       state <- getState
-      let notes = stateNotes state
-      case lookup ref notes of
+      let autoNotes = stateNotes state
+      let mbnote = if ref == "*" || ref == "#" -- auto-numbered
+                      -- consume the note, so the next auto-numbered
+                      -- note doesn't get the same contents:
+                      then case break ((== ref) . fst) autoNotes of
+                             (xs, (_, raw) : ys) -> Just (raw, xs ++ ys)
+                             _                   -> Nothing
+                      else (\raw -> (raw, autoNotes)) <$>
+                             M.lookup ref namedNotes
+      case mbnote of
         Nothing   -> do
           pos <- getPosition
           logMessage $ ReferenceNotFound ref pos
           return x
-        Just raw  -> do
+        Just (raw, newnotes) -> do
           -- We temporarily empty the note list while parsing the note,
           -- so that we don't get infinite loops with notes inside notes...
           -- Note references inside other notes are allowed in reST, but
           -- not yet in this implementation.
           updateState $ \st -> st{ stateNotes = [] }
           contents <- parseFromString' parseBlocks raw
-          let newnotes = if ref == "*" || ref == "#" -- auto-numbered
-                            -- delete the note so the next auto-numbered note
-                            -- doesn't get the same contents:
-                            then deleteFirstsBy (==) notes [(ref,raw)]
-                            else notes
           updateState $ \st -> st{ stateNotes = newnotes }
           return $ Note (B.toList contents)
   | Just ref <- T.stripPrefix "##SUBST##" s = do
@@ -254,9 +300,9 @@ resolveReferences' seen x@(Link _ ils (s,_))
                    [Para [t]] -> return t
                    [Para xs] -> return $ Span nullAttr xs
                    bls -> return $ Span nullAttr $ blocksToInlines bls
-                 resolveReferences' (Set.insert key seen) resolved
+                 resolveReferences' namedNotes (Set.insert key seen) resolved
   | otherwise = return x
-resolveReferences' _ x = return x
+resolveReferences' _ _ x = return x
 
 parseCitation :: PandocMonad m
               => (Text, Text) -> RSTParser m (Inlines, [Blocks])
@@ -303,7 +349,8 @@ rawFieldListItem minIndent = try $ do
   indent <- length <$> many (char ' ')
   guard $ indent >= minIndent
   char ':'
-  name <- many1TillChar (noneOf "\n") (char ':')
+  name <- takeWhile1P (\c -> c /= '\n' && c /= ':')
+  char ':'
   (void (lookAhead newline)) <|> skipMany1 spaceChar
   first <- anyLine
   rest <- option "" $ try $ do lookAhead (count indent (char ' ') >> spaceChar)
@@ -346,6 +393,7 @@ optionListItem = try $ do
   bodyElements <- do
     raw <- option "" indentedBlock
     parseFromString' parseBlocks $ (rawfirst <> raw) <> "\n\n"
+  guard (not (null bodyElements))
   optional blanklines
   pure (B.code opts, [bodyElements])
 
@@ -432,7 +480,7 @@ doubleHeader = do
         Nothing  -> (headerTable ++ [DoubleHeader c], length headerTable + 1)
   setState (state { stateHeaderTable = headerTable' })
   attr@(ident,_,_) <- registerHeader nullAttr txt
-  let key = toKey (stringify txt)
+  let key = toKey (stringifyInlines txt)
   updateState $ \s ->
     s { stateKeys = M.insert key (("#" <> ident,""), nullAttr) $ stateKeys s }
   return $ B.headerWith attr level txt
@@ -464,7 +512,7 @@ singleHeader = do
         Nothing  -> (headerTable ++ [SingleHeader c], length headerTable + 1)
   setState (state { stateHeaderTable = headerTable' })
   attr@(ident,_,_) <- registerHeader nullAttr txt
-  let key = toKey (stringify txt)
+  let key = toKey (stringifyInlines txt)
   updateState $ \s ->
     s { stateKeys = M.insert key (("#" <> ident,""), nullAttr) $ stateKeys s }
   return $ B.headerWith attr level txt
@@ -472,7 +520,14 @@ singleHeader = do
 singleHeader' :: PandocMonad m => RSTParser m (Inlines, Char)
 singleHeader' = try $ do
   notFollowedBy' whitespace
-  lookAhead $ anyLine >> oneOf underlineChars
+  -- check that the next line is a full underline before committing
+  -- to parsing the header text (otherwise we'd parse the first line
+  -- of many paragraphs twice):
+  lookAhead $ do
+    anyLine
+    c <- oneOf underlineChars
+    skipMany (char c)
+    blankline
   txt <- trimInlines . mconcat <$> many1 (notFollowedBy blankline >> inline)
   pos <- getPosition
   let len = sourceColumn pos - 1
@@ -500,25 +555,22 @@ hrule = try $ do
 -- code blocks
 --
 
--- read a line indented by a given string
-indentedLine :: (HasReaderOptions st, Monad m)
-             => Int -> ParsecT Sources st m Text
-indentedLine indents = try $ do
-  lookAhead spaceChar
-  gobbleAtMostSpaces indents
-  anyLine
-
 -- one or more indented lines, possibly separated by blank lines.
--- any amount of indentation will work.
+-- any amount of indentation will work; the minimum indentation
+-- is stripped from all lines (#12071).
 indentedBlock :: (HasReaderOptions st, Monad m)
               => ParsecT Sources st m Text
 indentedBlock = try $ do
-  indents <- length <$> lookAhead (many1 spaceChar)
+  lookAhead spaceChar
   lns <- many1 $ try $ do b <- option "" blanklines
-                          l <- indentedLine indents
-                          return (b <> l)
+                          lookAhead spaceChar
+                          n <- gobbleAtMostSpaces maxBound
+                          l <- anyLine
+                          return (b, n, l)
   optional blanklines
-  return $ T.unlines lns
+  let minIndent = minimum [n | (_, n, _) <- lns]
+  return $ T.unlines
+    [b <> T.replicate (n - minIndent) " " <> l | (b, n, l) <- lns]
 
 quotedBlock :: Monad m => ParsecT Sources st m Text
 quotedBlock = try $ do
@@ -1043,22 +1095,15 @@ csvTableDirective top fields rawcsv = do
                  _ -> replicate numOfCols ColWidthDefault
          let toRow = Row nullAttr . map B.simpleCell
              toHeaderRow l = [toRow l | not (null l)]
-         return $ B.table (B.simpleCaption $ B.plain title)
+         return $ compactifyTable
+                $ B.table (B.simpleCaption $ B.plain title)
                           (zip (replicate numOfCols AlignDefault) widths)
                           (TableHead nullAttr $ toHeaderRow headerRow)
                           [TableBody nullAttr 0 [] $ map toRow bodyRows]
                           (TableFoot nullAttr [])
 
-singleParaToPlain :: Blocks -> Blocks
-singleParaToPlain bs =
-  case B.toList bs of
-    [Para ils] -> B.fromList [Plain ils]
-    _          -> bs
-
 parseCell :: PandocMonad m => Text -> RSTParser m Blocks
-parseCell t = singleParaToPlain
-   <$> parseFromString' parseBlocks (trim t <> "\n\n")
-
+parseCell t = parseFromString' parseBlocks (trim t <> "\n\n")
 
 -- TODO:
 --  - Only supports :format: fields with a single format for :raw: roles,
@@ -1088,7 +1133,7 @@ addNewRole roleText fields = do
           classFieldClasses = maybe [role] T.words (lookup "class" fields)
 
           -- nub in case role name & language class are the same
-          in nub (classFieldClasses ++ codeLanguageClass ++ oldClasses)
+          in nubOrd (classFieldClasses ++ codeLanguageClass ++ oldClasses)
 
         attr = let (ident, baseClasses, keyValues) = baseAttr
                in (ident, updateClasses baseClasses, keyValues)
@@ -1175,8 +1220,8 @@ codeblock ident classes fields lang rmTrailingNewlines body =
                                      then stripTrailingNewlines
                                      else id
           attribs = (ident, classes', kvs)
-          classes' = lang
-                    : ["numberLines" | isJust (lookup "number-lines" fields)]
+          classes' =   [ lang | not (T.null lang) ]
+                    ++ ["numberLines" | isJust (lookup "number-lines" fields)]
                     ++ classes
           kvs = [(k,v) | (k,v) <- fields, k /= "number-lines", k /= "class",
                                           k /= "id", k /= "name"]
@@ -1234,7 +1279,7 @@ citationMarker = do
 noteMarker :: Monad m => RSTParser m Text
 noteMarker = do
   char '['
-  res <- many1Char digit
+  res <- takeWhile1P isDigit
       <|>
                   try (char '#' >> liftM ("#" <>) simpleReferenceName)
       <|> countChar 1 (oneOf "#*")
@@ -1274,9 +1319,9 @@ targetURI :: Monad m => ParsecT Sources st m Text
 targetURI = do
   skipSpaces
   optional $ try $ newline >> notFollowedBy blankline
-  contents <- trim <$>
-     many1Char (satisfy (/='\n')
-     <|> try (newline >> many1 spaceChar >> noneOf " \t\n"))
+  contents <- trim . mconcat <$>
+     many1 (takeWhile1P (/='\n')
+     <|> T.singleton <$> try (newline >> many1 spaceChar >> noneOf " \t\n"))
   blanklines
   return $ stripBackticks contents
   where
@@ -1513,7 +1558,8 @@ gridTable = runIdentity <$>
   gridTableWith (Identity <$> parseBlocks)
 
 table :: PandocMonad m => RSTParser m Blocks
-table = gridTable <|> simpleTable False <|> simpleTable True <?> "table"
+table = compactifyTable <$>
+  (gridTable <|> simpleTable False <|> simpleTable True <?> "table")
 
 --
 -- inline
@@ -1522,6 +1568,7 @@ table = gridTable <|> simpleTable False <|> simpleTable True <?> "table"
 inline :: PandocMonad m => RSTParser m Inlines
 inline =
   (note          -- can start with whitespace, so try before ws
+    <|> quotedSymbol
     <|> do notAfterString >>= guard
            (link <|> inlineAnchor <|> strong <|> emph)
     <|> code
@@ -1551,16 +1598,34 @@ escapedChar = do c <- escaped anyChar
                       unless (canPrecedeOpener c) updateLastStrPos
                       return $ B.str $ T.singleton c
 
+-- Characters that may precede an inline markup start-string: the ASCII
+-- characters - : / ' " < ( [ { and similar non-ASCII punctuation.
 canPrecedeOpener :: Char -> Bool
 canPrecedeOpener c =
+  c == ':' || c == '/' || c == '\'' || c == '"' || c == '<' ||
   generalCategory c `elem`
    [OpenPunctuation, InitialQuote, FinalQuote, DashPunctuation, OtherSymbol]
 
 symbol :: Monad m => RSTParser m Inlines
 symbol = do
-  c <- oneOf specialChars
+  c <- satisfy isSpecialChar
   unless (canPrecedeOpener c) updateLastStrPos
   return $ B.str $ T.singleton c
+
+-- A start-string between an opening character and the matching closing
+-- character, as in (*) or "*", is not inline markup.
+quotedSymbol :: Monad m => RSTParser m Inlines
+quotedSymbol = try $ do
+  opener <- oneOf "([{<\"'\8216\8220"
+  case lookup opener openersClosers of
+    Nothing -> mzero
+    Just closer ->
+      B.text . (\c -> T.pack [opener, c, closer])
+         <$> try (oneOf "*`|" <* char closer)
+ where
+  openersClosers = [('(', ')'), ('[', ']'), ('{', '}'), ('<', '>'),
+                    ('"', '"'), ('\'', '\''),
+                    ('\8216', '\8217'), ('\8220', '\8221')]
 
 -- parses inline code, between codeStart and codeEnd
 code :: Monad m => RSTParser m Inlines
@@ -1719,10 +1784,11 @@ whitespace = B.space <$ skipMany1 spaceChar <?> "whitespace"
 
 str :: Monad m => RSTParser m Inlines
 str = do
-  let strChar = noneOf ("\t\n " ++ specialChars)
-  result <- many1Char strChar
+  result <- takeWhile1P isStrChar
   updateLastStrPos
   return $ B.str result
+ where
+  isStrChar c = c /= '\t' && c /= '\n' && c /= ' ' && not (isSpecialChar c)
 
 -- an endline character that can be treated as a space, not a structural break
 endline :: Monad m => RSTParser m Inlines
@@ -1740,7 +1806,28 @@ endline = try $ do
 --
 
 link :: PandocMonad m => RSTParser m Inlines
-link = choice [explicitLink, referenceLink, autoLink]  <?> "link"
+link = do
+  linkPossible
+  choice [explicitLink, referenceLink, autoLink]  <?> "link"
+
+-- Fail fast if no link parser can succeed here: each of them
+-- requires one of the characters @`[_:\@@ before the next
+-- whitespace ('`' for explicit links and quoted reference names,
+-- '[' for citation names, '_' for reference links, ':' after the
+-- scheme of a URI, '@' in an email address).  Checking this on the
+-- raw input is much cheaper than running each link parser over the
+-- next word only to have it fail.
+linkPossible :: Monad m => RSTParser m ()
+linkPossible = do
+  Sources inps <- getInput
+  case inps of
+    [] -> mzero
+    (_, t) : rest -> do
+      let (w, t') = T.break (\c -> c == ' ' || c == '\t' || c == '\n') t
+      guard $ (T.null t' && not (null rest))
+                -- word may continue in next chunk: inconclusive
+            || T.any (\c -> c == '`' || c == '[' || c == '_' ||
+                            c == ':' || c == '@') w
 
 explicitLink :: PandocMonad m => RSTParser m Inlines
 explicitLink = try $ do
@@ -1762,7 +1849,7 @@ explicitLink = try $ do
   let label'' = if label' == mempty
                    then B.str src
                    else label'
-  let key = toKey $ stringify label'
+  let key = toKey $ stringifyInlines label'
   unless (key == Key mempty) $ do
     updateState $ \s -> s{
       stateKeys = M.insert key ((src',""), nullAttr) $ stateKeys s }

@@ -58,13 +58,15 @@ import Text.Pandoc.Error
 import Text.Pandoc.Logging
 import Text.Pandoc.Options (
     Extension (Ext_epub_html_exts, Ext_empty_paragraphs, Ext_native_divs,
-               Ext_native_spans, Ext_raw_html, Ext_line_blocks, Ext_raw_tex),
+               Ext_native_spans, Ext_raw_html, Ext_line_blocks, Ext_raw_tex,
+               Ext_smart, Ext_tex_math_dollars,
+               Ext_tex_math_single_backslash, Ext_tex_math_double_backslash),
     ReaderOptions (readerExtensions, readerStripComments),
     extensionEnabled)
 import Text.Pandoc.Parsing hiding ((<|>))
 import Text.Pandoc.Shared (
     addMetaField, extractSpaces, htmlSpanLikeElements, renderTags',
-    safeRead, tshow, formatCode)
+    safeRead, tshow, formatCode, plainToPara)
 import Text.Pandoc.URI (escapeURI)
 import Text.Pandoc.Walk
 import Text.TeXMath (readMathML, writeTeX)
@@ -76,7 +78,17 @@ readHtml :: (PandocMonad m, ToSources a)
          => ReaderOptions -- ^ Reader options
          -> a             -- ^ Input to parse
          -> m Pandoc
-readHtml opts inp = do
+readHtml = readHtmlWithDepth 0
+
+-- Like 'readHtml', but starting at the given iframe nesting depth.
+-- Used to limit recursion when the contents of iframes are fetched
+-- and parsed (see pIframe).
+readHtmlWithDepth :: (PandocMonad m, ToSources a)
+                  => Int
+                  -> ReaderOptions
+                  -> a
+                  -> m Pandoc
+readHtmlWithDepth depth opts inp = do
   let tags = stripPrefixes $ canonicalizeTags $
              parseTagsOptions parseOptions{ optTagPosition = True }
              (sourcesToText $ toSources inp)
@@ -92,7 +104,7 @@ readHtml opts inp = do
   result <- flip runReaderT def $
        runParserT parseDoc
        (HTMLState def{ stateOptions = opts }
-         [] Nothing Set.empty [] M.empty opts False)
+         M.empty M.empty Nothing Set.empty [] M.empty opts False False depth)
        "source" tags
   case result of
     Right doc -> return doc
@@ -127,12 +139,14 @@ replaceNotes bs = do
   walkM (replaceNotes' notes) bs
 
 replaceNotes' :: PandocMonad m
-              => [(Text, Blocks)] -> Inline -> TagParser m Inline
+              => M.Map Text Blocks -> Inline -> TagParser m Inline
 replaceNotes' noteTbl (RawInline (Format "noteref") ref) =
-  maybe warnNotFound (pure . Note . B.toList) $ lookup ref noteTbl
+  maybe warnNotFound (pure . Note . B.toList) $ M.lookup ref noteTbl
  where
   warnNotFound = do
-    pos <- getPosition
+    -- use the position of the noteref, if we recorded one; the
+    -- current position is at the end of the document by now:
+    pos <- M.lookup ref . noteRefPos <$> getState >>= maybe getPosition pure
     logMessage $ ReferenceNotFound ref pos
     pure (Note [])
 replaceNotes' _ x = pure x
@@ -222,7 +236,7 @@ block = ((do
         "h5" -> pHeader
         "h6" -> pHeader
         "blockquote" -> pBlockQuote
-        "pre" -> pCodeBlock
+        "pre" -> pCodeBlock <|> pPreBlock
         "ul" -> pBulletList
         "ol" -> pOrderedList
         "dl" -> pDefinitionList
@@ -296,9 +310,9 @@ eFootnote = do
        _ -> False)
   let attr = toStringAttr attr'
   let ident = fromMaybe "" (lookup "id" attr)
-  content <- pInTags tag block
+  content <- local (\s -> s{ inNoteBody = True }) $ pInTags tag block
   updateState $ \s ->
-    s {noteTable = (ident, content) : noteTable s}
+    s {noteTable = M.insert ident content (noteTable s)}
 
 eFootnotes :: PandocMonad m => TagParser m Blocks
 eFootnotes = try $ do
@@ -331,6 +345,9 @@ eNoteref = try $ do
   ident <- case lookup "href" attr >>= T.uncons of
              Just ('#', rest) -> return rest
              _ -> mzero
+  pos <- getPosition
+  updateState $ \s ->
+    s{ noteRefPos = M.insertWith (\_new old -> old) ident pos (noteRefPos s) }
   _ <- manyTill pAny (pSatisfy (\case
                                    TagClose t -> t == tag
                                    _          -> False))
@@ -377,8 +394,9 @@ pListItem = setInListItem $ do
 
 pCheckbox :: PandocMonad m => TagParser m Inlines
 pCheckbox = do
-  TagOpen _ attr' <- pSatisfy $ matchTagOpen "input" [("type","checkbox")]
-  TagClose _ <- pSatisfy (matchTagClose "input")
+  -- <input> is a void element, so the closing tag is optional
+  TagOpen _ attr' <- pSelfClosing (=="input")
+                       (\as -> lookup "type" as == Just "checkbox")
   let attr = toStringAttr attr'
   let isChecked = isJust $ lookup "checked" attr
   let escapeSequence = B.str $ if isChecked then "\9746" else "\9744"
@@ -404,15 +422,23 @@ parseTypeAttr _   = DefaultStyle
 pOrderedList :: PandocMonad m => TagParser m Blocks
 pOrderedList = try $ do
   TagOpen _ attribs' <- pSatisfy (matchTagOpen "ol" [])
-  isNoteList <- inFootnotes <$> getState
+  -- an <ol> inside the body of a note is an ordered list, not the
+  -- list of notes (#11852):
+  inNotes <- inFootnotes <$> getState
+  inBody <- asks inNoteBody
+  let isNoteList = inNotes && not inBody
   let attribs = toStringAttr attribs'
   let start = fromMaybe 1 $ lookup "start" attribs >>= safeRead
   let style = fromMaybe DefaultStyle
          $  (parseTypeAttr      <$> lookup "type" attribs)
-        <|> (parseListStyleType <$> lookup "class" attribs)
+        <|> (lookup "class" attribs >>= pickClassStyle)
         <|> (parseListStyleType <$> (lookup "style" attribs >>= pickListStyle))
         where
           pickListStyle = pickStyleAttrProps ["list-style-type", "list-style"]
+          -- the list style may be one of several words in the class
+          -- attribute:
+          pickClassStyle = L.find (/= DefaultStyle)
+                             . map parseListStyleType . T.words
 
   -- note: if they have an <ol> or <ul> not in scope of a <li>,
   -- treat it as a list item, though it's not valid xhtml...
@@ -463,8 +489,6 @@ fixPlains inList bs = if any isParaish bs'
         isParaish OrderedList{}    = not inList
         isParaish DefinitionList{} = not inList
         isParaish _                = False
-        plainToPara (Plain xs) = Para xs
-        plainToPara x          = x
         bs' = B.toList bs
 
 pRawTag :: PandocMonad m => TagParser m Text
@@ -520,7 +544,10 @@ pIframe = try $ do
   skipMany pBlank
   pCloses "iframe" <|> eof
   url <- canonicalizeUrl $ fromAttrib "src" tag
-  if T.null url
+  depth <- iframeDepth <$> getState
+  -- limit nesting depth, since iframes that (indirectly) embed
+  -- themselves would otherwise cause infinite recursion:
+  if T.null url || depth >= maxIframeDepth
      then ignore $ renderTags' [tag, TagClose "iframe"]
      else catchError
        (do (bs, mbMime) <- openURL url
@@ -529,7 +556,7 @@ pIframe = try $ do
                | "text/html" `T.isPrefixOf` mt -> do
                     let inp = UTF8.toText bs
                     opts <- readerOpts <$> getState
-                    Pandoc _ contents <- readHtml opts inp
+                    Pandoc _ contents <- readHtmlWithDepth (depth + 1) opts inp
                     return $ B.divWith ("",["iframe"],[]) $ B.fromList contents
                | "image/" `T.isPrefixOf` mt -> do
                     return $ B.divWith ("",["iframe"],[]) $
@@ -538,6 +565,9 @@ pIframe = try $ do
        (\e -> do
          logMessage $ CouldNotFetchResource url (renderError e)
          ignore $ renderTags' [tag, TagClose "iframe"])
+
+maxIframeDepth :: Int
+maxIframeDepth = 5
 
 pRawHtmlBlock :: PandocMonad m => TagParser m Blocks
 pRawHtmlBlock = do
@@ -611,7 +641,8 @@ pHrule :: PandocMonad m => TagParser m Blocks
 pHrule = do
   pSelfClosing (=="hr") (const True)
   inNotes <- inFootnotes <$> getState
-  return $ if inNotes
+  inBody <- asks inNoteBody
+  return $ if inNotes && not inBody
               then mempty
               else B.horizontalRule
 
@@ -646,6 +677,15 @@ pFigure = do
                         (B.simpleCaption (mconcat captions))
                         (mconcat rest)
 
+pPreBlock :: PandocMonad m => TagParser m Blocks
+pPreBlock = try $ do
+  pSatisfy (matchTagOpen "pre" [])
+  oldInPre <- inPre <$> getState
+  updateState $ \st -> st{ inPre = True }
+  contents <- mconcat <$> manyTill block (pCloses "pre" <|> eof)
+  updateState $ \st -> st{ inPre = oldInPre }
+  return contents
+
 pCodeBlock :: PandocMonad m => TagParser m Blocks
 pCodeBlock = try $ do
   TagOpen _ attr' <- pSatisfy (matchTagOpen "pre" [])
@@ -655,7 +695,9 @@ pCodeBlock = try $ do
   let modifyClasses f ("class",v) =
         ("class", T.unwords . map f . T.words $ v)
       modifyClasses _ (k,v) = (k,v)
-  let attr = toAttr $ map (modifyClasses stripLanguagePrefix) $ codeAttr <> attr'
+  -- pre's attributes take precedence (toAttr keeps the first of
+  -- duplicate attributes):
+  let attr = toAttr $ map (modifyClasses stripLanguagePrefix) $ attr' <> codeAttr
   contents <- manyTill pAny (pCloses "pre" <|> eof)
   let rawText = T.concat $ map tagToText contents
   -- drop trailing newline if any
@@ -711,11 +753,14 @@ inline = pTagText <|> do
         "input"
           | lookup "type" attr == Just "checkbox"
           -> asks inListItem >>= guard >> pCheckbox
-        "style" -> B.rawInline "html" <$> pHtmlBlock "style"
+        "style"
+          | extensionEnabled Ext_raw_html exts
+          -> B.rawInline "html" <$> pHtmlBlock "style"
+          | otherwise -> pHtmlBlock "style" >>= ignore
         "script"
           | Just x <- lookup "type" attr
           , "math/tex" `T.isPrefixOf` x -> pScriptMath
-        _ | name `elem` htmlSpanLikeElements -> pSpanLike
+        _ | name `Set.member` htmlSpanLikeElements -> pSpanLike name
         _ -> pRawHtmlInline
     TagText _ -> pTagText
     _ -> pRawHtmlInline
@@ -761,18 +806,12 @@ pSuperscript = pInlinesInTags "sup" B.superscript
 pSubscript :: PandocMonad m => TagParser m Inlines
 pSubscript = pInlinesInTags "sub" B.subscript
 
-pSpanLike :: PandocMonad m => TagParser m Inlines
-pSpanLike =
-  Set.foldr
-    (\tagName acc -> acc <|> parseTag tagName)
-    mzero
-    htmlSpanLikeElements
-  where
-    parseTag tagName = do
-      TagOpen _ attrs <- pSatisfy $ tagOpenLit tagName (const True)
-      let (ids, cs, kvs) = toAttr attrs
-      content <- mconcat <$> manyTill inline (pCloses tagName <|> eof)
-      return $ B.spanWith (ids, tagName : cs, kvs) content
+pSpanLike :: PandocMonad m => Text -> TagParser m Inlines
+pSpanLike tagName = do
+  TagOpen _ attrs <- pSatisfy $ tagOpenLit tagName (const True)
+  let (ids, cs, kvs) = toAttr attrs
+  content <- mconcat <$> manyTill inline (pCloses tagName <|> eof)
+  return $ B.spanWith (ids, tagName : cs, kvs) content
 
 pSmall :: PandocMonad m => TagParser m Inlines
 pSmall = pInlinesInTags "small" (B.spanWith ("",["small"],[]))
@@ -964,23 +1003,43 @@ pTagText = try $ do
   pos <- getPosition
   (TagText str) <- pSatisfy isTagText
   st <- getState
-  qu <- ask
-  parsed <- lift $ lift $
-            flip runReaderT qu $ runParserT (many pTagContents) st "text"
-               (Sources [(pos, str)])
-  case parsed of
-       Left _        -> throwError $ PandocParseError $
-                        "Could not parse `" <> str <> "'"
-       Right result  -> return $ mconcat result
+  exts <- getOption readerExtensions
+  let smart = extensionEnabled Ext_smart exts
+  let mathDollars = extensionEnabled Ext_tex_math_dollars exts
+  let backslashSpecial = extensionEnabled Ext_raw_tex exts ||
+                         extensionEnabled Ext_tex_math_single_backslash exts ||
+                         extensionEnabled Ext_tex_math_double_backslash exts
+  -- Chars that could make pTagContents yield something different from
+  -- a plain B.text decomposition into Str, Space, and SoftBreak:
+  let needsParsing c =
+        isBad c ||                    -- gets remapped (see pBad)
+        (c == '$' && mathDollars) ||  -- may start tex math
+        (c == '\\' && backslashSpecial) ||  -- raw tex or tex math
+        (smart && (c == '\'' || c == '"' || c == '.' || c == '-'))
+  if not (inPre st) && not (T.any needsParsing str)
+     -- fast path: the result is a plain decomposition of the text into
+     -- Str, Space, and SoftBreak, which is exactly what B.text gives us
+     -- (adjacent Strs produced by pTagContents are merged by the
+     -- Inlines Semigroup instance, so the results coincide):
+     then return $ B.text str
+     else do
+       qu <- ask
+       parsed <- lift $ lift $
+                 flip runReaderT qu $ runParserT (many pTagContents) st "text"
+                    (Sources [(pos, str)])
+       case parsed of
+            Left _        -> throwError $ PandocParseError $
+                             "Could not parse `" <> str <> "'"
+            Right result  -> return $ mconcat result
 
 type InlinesParser m = HTMLParser m Sources
 
 pTagContents :: PandocMonad m => InlinesParser m Inlines
 pTagContents =
-      B.displayMath <$> mathDisplay
+      pStr    -- can't consume the special chars that start the other
+  <|> pSpace  -- parsers, so it is safe to try these two first
+  <|> B.displayMath <$> mathDisplay
   <|> B.math        <$> mathInline
-  <|> pStr
-  <|> pSpace
   <|> smartPunctuation pTagContents
   <|> pRawTeX
   <|> pSymbol
@@ -1062,10 +1121,20 @@ pBad = do
   return $ B.str $ T.singleton c'
 
 pSpace :: PandocMonad m => InlinesParser m Inlines
-pSpace = many1 (satisfy isSpace) >>= \xs ->
-            if '\n' `elem` xs
-               then return B.softbreak
-               else return B.space
+pSpace = do
+  inpre <- inPre <$> getState
+  xs <- many1 (satisfy isSpace)
+  if inpre
+     then return $ makePreInlines xs
+     else if '\n' `elem` xs
+             then return B.softbreak
+             else return B.space
+ where
+  makePreInlines cs =
+    let chunks = splitWhen (=='\n') cs
+        tostr = B.str . T.pack . map (\c -> if c == ' ' then '\160' else c)
+    in  mconcat $ filter (/= B.str "")
+                $ L.intersperse B.linebreak (map tostr chunks)
 
 getTagName :: Tag Text -> Maybe Text
 getTagName (TagOpen t _) = Just t
@@ -1165,12 +1234,19 @@ htmlTag f = try $ do
   let ts = canonicalizeTags $ parseTagsOptions
                                parseOptions{ optTagWarning = False
                                            , optTagPosition = True }
-                               (inp <> " ")
-                               -- add space to ensure that
-                               -- we get a TagPosition after the tag
+                               inp
+  -- if the tag is the last token, there is no TagPosition after it;
+  -- in that case its end is the end of the input (positions are 1-based).
+  -- (Note: only computed when needed, to avoid a scan of the input.)
+  let endOfInput = (T.count "\n" inp + 1,
+                    T.length (T.takeWhileEnd (/= '\n') inp) + 1)
   (next, ln, col) <- case ts of
-                      (TagPosition{} : next : TagPosition ln col : _)
-                        | f next -> return (next, ln, col)
+                      (TagPosition{} : next : rest)
+                        | f next ->
+                           case dropWhile (not . isTagPosition) rest of
+                             TagPosition ln col : _ -> return (next, ln, col)
+                             _ -> let (ln, col) = endOfInput
+                                  in return (next, ln, col)
                       _ -> mzero
 
   -- <www.boe.es/buscar/act.php?id=BOE-A-1996-8930#a66>

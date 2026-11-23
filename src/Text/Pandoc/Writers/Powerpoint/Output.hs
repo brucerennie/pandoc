@@ -28,6 +28,7 @@ import Control.Monad.Reader
 import Control.Monad.State
     ( StateT, gets, modify, evalStateT )
 import Codec.Archive.Zip
+import Data.Containers.ListUtils (nubOrdOn)
 import Data.List (intercalate, stripPrefix, nub, union, isPrefixOf, intersperse)
 import Data.Bifunctor (bimap)
 import Data.CaseInsensitive (CI)
@@ -57,6 +58,7 @@ import qualified Data.ByteString.Lazy as BL
 import Text.Pandoc.Writers.Shared (metaToContext)
 import Text.Pandoc.Writers.OOXML
 import qualified Data.Map as M
+import qualified Data.Set as Set
 import Data.Maybe (mapMaybe, listToMaybe, fromMaybe, maybeToList, catMaybes, isJust)
 import Text.Pandoc.ImageSize
 import Control.Applicative ((<|>))
@@ -67,7 +69,7 @@ import Text.TeXMath
 import Text.Pandoc.Logging (LogMessage(PowerpointTemplateWarning))
 import Text.Pandoc.Writers.Math (convertMath)
 import Text.Pandoc.Writers.Powerpoint.Presentation
-import Text.Pandoc.Shared (tshow, stringify)
+import Text.Pandoc.Shared (tshow, stringify, stringifyInlines)
 import Skylighting (fromColor)
 
 -- |The 'EMU' type is used to specify sizes in English Metric Units.
@@ -131,6 +133,9 @@ data WriterEnv = WriterEnv { envRefArchive :: Archive
                            , envInSpeakerNotes :: Bool
                            , envSlideLayouts :: Maybe SlideLayouts
                            , envOtherStyleIndents :: Maybe Indents
+                           -- The parsed slide master, cached to avoid
+                           -- re-parsing it for every slide.
+                           , envMaster :: Maybe Element
                            }
                  deriving (Show)
 
@@ -151,6 +156,7 @@ instance Default WriterEnv where
                   , envInSpeakerNotes = False
                   , envSlideLayouts = Nothing
                   , envOtherStyleIndents = Nothing
+                  , envMaster = Nothing
                   }
 
 type SlideLayouts = SlideLayoutsOf SlideLayout
@@ -391,15 +397,27 @@ presentationToArchiveP p@(Presentation docProps slides) = do
   mediaEntries <- makeMediaEntries
   contentTypesEntry <- presentationToContentTypes p >>= contentTypesToEntry
   -- fold everything into our inherited archive and return it.
-  return $ foldr addEntryToArchive newArch' $
-    slideEntries <>
-    slideRelEntries <>
-    spkNotesEntries <>
-    spkNotesRelEntries <>
-    mediaEntries <>
-    [updatedMasterEntry, updatedMasterRelEntry]  <>
-    [contentTypesEntry, docPropsEntry, docCustomPropsEntry, relsEntry,
-     presEntry, presRelsEntry, viewPropsEntry]
+  return $ addEntriesToArchive
+    (slideEntries <>
+     slideRelEntries <>
+     spkNotesEntries <>
+     spkNotesRelEntries <>
+     mediaEntries <>
+     [updatedMasterEntry, updatedMasterRelEntry]  <>
+     [contentTypesEntry, docPropsEntry, docCustomPropsEntry, relsEntry,
+      presEntry, presRelsEntry, viewPropsEntry])
+    newArch'
+
+-- | Add entries to an archive in a single pass.  Equivalent to (but
+-- faster than) folding 'addEntryToArchive' over the list: for
+-- duplicate paths the first entry in the list wins, and the new
+-- entries precede (and replace) existing entries with the same paths.
+addEntriesToArchive :: [Entry] -> Archive -> Archive
+addEntriesToArchive entries archive =
+  archive{ zEntries = nubOrdOn eRelativePath entries <>
+                      filter (\e -> eRelativePath e `Set.notMember` newPaths)
+                             (zEntries archive) }
+  where newPaths = Set.fromList $ map eRelativePath entries
 
 updateMasterElems :: SlideLayouts -> Element -> Element -> (Element, Element)
 updateMasterElems layouts master masterRels = (updatedMaster, updatedMasterRels)
@@ -578,10 +596,21 @@ presentationToArchive opts meta pres = do
   distArchive <- toArchive . BL.fromStrict <$>
                         readDefaultDataFile "reference.pptx"
   refArchive <- case writerReferenceDoc opts of
-                     Just f  -> toArchive . BL.fromStrict . fst
-                                  <$> P.fetchItem (T.pack f)
-                     Nothing -> toArchive . BL.fromStrict <$>
-                        readDataFile "reference.pptx"
+                   Just f  -> do
+                     arch <- toArchiveOrFail . BL.fromStrict . fst
+                                 <$> P.fetchItem (T.pack f)
+                     case arch of
+                       Left err -> throwError $ PandocParseError $
+                         "Could not parse reference-doc " <>
+                           tshow f <> ": " <> T.pack err
+                       Right x -> pure x
+                   Nothing -> do
+                     arch <- toArchiveOrFail . BL.fromStrict <$>
+                                 readDataFile "reference.pptx"
+                     case arch of
+                       Left err -> throwError $ PandocParseError $
+                         "Could not parse reference.pptx: " <> T.pack err
+                       Right x -> pure x
 
   let (referenceLayouts, defaultReferenceLayouts) =
         (getLayoutsFromArchive refArchive, getLayoutsFromArchive distArchive)
@@ -661,7 +690,7 @@ presentationToArchive opts meta pres = do
   context <- metaToContext opts{ writerTemplate =
                                   writerTemplate opts <|> Just mempty }
                 (return . literal . stringify)
-                (return . literal . stringify) meta
+                (return . literal . stringifyInlines) meta
 
   let env = def { envRefArchive = refArchive
                 , envDistArchive = distArchive
@@ -673,6 +702,7 @@ presentationToArchive opts meta pres = do
                 , envSpeakerNotesIdMap = makeSpeakerNotesMap pres
                 , envSlideLayouts = Just layouts
                 , envOtherStyleIndents = otherStyleIndents
+                , envMaster = Just master
                 }
 
   let st = def { stMediaGlobalIds = initialGlobalIds refArchive distArchive
@@ -983,9 +1013,13 @@ makeMediaEntries = do
 
 getMaster :: PandocMonad m => P m Element
 getMaster = do
-  refArchive <- asks envRefArchive
-  distArchive <- asks envDistArchive
-  getMaster' refArchive distArchive
+  mbMaster <- asks envMaster
+  case mbMaster of
+    Just master -> pure master
+    Nothing -> do
+      refArchive <- asks envRefArchive
+      distArchive <- asks envDistArchive
+      getMaster' refArchive distArchive
 
 getMaster' :: PandocMonad m => Archive -> Archive -> m Element
 getMaster' refArchive distArchive =
@@ -2272,6 +2306,8 @@ slideToSpeakerNotesElement slide@(Slide _ _ (SpeakerNotes paras) _) = do
           , sldNumShape
           ]
         ]
+      -- required by Keynote, see #11935
+      , mknode "p:clrMapOvr" [] $ mknode "a:masterClrMapping" [] ()
       ]
 
 -----------------------------------------------------------------------
@@ -2745,6 +2781,7 @@ docPropsElement docProps = do
     : ( [mknode "dc:subject" [] $ fromMaybe "" $ dcSubject docProps | isJust (dcSubject docProps)])
     <> ( [mknode "dc:description" [] $ fromMaybe "" $ dcDescription docProps | isJust (dcDescription docProps)])
     <> ( [mknode "cp:category" [] $ fromMaybe "" $ cpCategory docProps | isJust (cpCategory docProps)])
+    <> ( [mknode "dc:language" [] $ fromMaybe "" $ dcLanguage docProps | isJust (dcLanguage docProps)])
     <> (\x -> [ mknode "dcterms:created" [("xsi:type","dcterms:W3CDTF")] x
               , mknode "dcterms:modified" [("xsi:type","dcterms:W3CDTF")] x
               ]) (T.pack $ formatTime defaultTimeLocale "%FT%XZ" utctime)

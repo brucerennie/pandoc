@@ -109,6 +109,7 @@ data ReaderEnv = ReaderEnv { envNotes         :: Notes
                            , envFont          :: Maybe Font
                            , envCharStyles    :: CharStyleMap
                            , envParStyles     :: ParStyleMap
+                           , envTableStyles   :: TableStyleMap
                            , envLocation      :: DocumentLocation
                            , envDocXmlPath    :: FilePath
                            , envTextWidth     :: Int
@@ -233,6 +234,8 @@ type CharStyleMap = M.Map CharStyleId CharStyle
 
 type ParStyleMap = M.Map ParaStyleId ParStyle
 
+type TableStyleMap = M.Map TableStyleId TableStyle
+
 data Numbering = Numbering NameSpaces [Numb] [AbstractNumb]
                  deriving Show
 
@@ -246,8 +249,8 @@ data LevelOverride = LevelOverride T.Text (Maybe Integer) (Maybe Level)
 data AbstractNumb = AbstractNumb T.Text [Level]
                     deriving Show
 
---                 ilvl   format string  start
-data Level = Level T.Text T.Text T.Text (Maybe Integer)
+--                 ilvl   format string  start          left indent
+data Level = Level T.Text T.Text T.Text (Maybe Integer) (Maybe Integer)
   deriving Show
 
 data DocumentLocation = InDocument | InFootnote | InEndnote
@@ -382,6 +385,7 @@ leftBiasedMergeRunStyle a b = RunStyle
     , isItalicCTL = isItalicCTL a <|> isItalicCTL b
     , isSmallCaps = isSmallCaps a <|> isSmallCaps b
     , isStrike = isStrike a <|> isStrike b
+    , isDoubleStrike = isDoubleStrike a <|> isDoubleStrike b
     , isRTL = isRTL a <|> isRTL b
     , isForceCTL = isForceCTL a <|> isForceCTL b
     , rHighlight = rHighlight a <|> rHighlight b
@@ -398,8 +402,8 @@ data ParPart = PlainRun Run
              | CommentStart CommentId Author (Maybe CommentDate) [BodyPart]
              | CommentEnd CommentId
              | BookMark BookMarkId Anchor
-             | InternalHyperLink Anchor [ParPart]
-             | ExternalHyperLink URL [ParPart]
+             | InternalHyperLink Anchor T.Text [ParPart]          -- tooltip
+             | ExternalHyperLink URL T.Text [ParPart]             -- tooltip
              | Drawing FilePath T.Text T.Text B.ByteString Extent -- title, alt
              | Chart                                              -- placeholder for now
              | Diagram                                            -- placeholder for now
@@ -443,7 +447,7 @@ archiveToDocxWithWarnings archive = do
       numbering = archiveToNumbering archive
       rels      = archiveToRelationships archive docXmlPath
       media     = filteredFilesFromArchive archive filePathIsMedia
-      (styles, parstyles) = archiveToStyles archive
+      (styles, parstyles, tabstyles) = archiveToStyles archive
       textWidth = archiveToTextWidth archive
       rEnv = ReaderEnv { envNotes = notes
                        , envComments = comments
@@ -453,6 +457,7 @@ archiveToDocxWithWarnings archive = do
                        , envFont = Nothing
                        , envCharStyles = styles
                        , envParStyles = parstyles
+                       , envTableStyles = tabstyles
                        , envLocation = InDocument
                        , envDocXmlPath = docXmlPath
                        , envTextWidth = fromMaybe 9360 textWidth
@@ -512,8 +517,8 @@ elemToBody ns element
       | otherwise
       = ((:[]) <$> elemToBodyPart ns' el) `catchError` (\_ -> return [])
 
-archiveToStyles :: Archive -> (CharStyleMap, ParStyleMap)
-archiveToStyles = archiveToStyles' getStyleId getStyleId
+archiveToStyles :: Archive -> (CharStyleMap, ParStyleMap, TableStyleMap)
+archiveToStyles = archiveToStyles' getStyleId getStyleId getStyleId
 
 class HasParentStyle a where
   getParentStyle :: a -> Maybe a
@@ -615,9 +620,9 @@ lookupLevel numId ilvl (Numbering _ numbs absNumbs) = do
   case lvlOverride of
     Just (LevelOverride _ _ (Just lvl')) -> Just lvl'
     Just (LevelOverride _ (Just strt) _) ->
-      lookup ilvl $ map (\(Level i fmt s _) -> (i, Level i fmt s (Just strt))) lvls
+      lookup ilvl $ map (\(Level i fmt s _ ind) -> (i, Level i fmt s (Just strt) ind)) lvls
     _ ->
-      lookup ilvl $ map (\l@(Level i _ _ _) -> (i, l)) lvls
+      lookup ilvl $ map (\l@(Level i _ _ _ _) -> (i, l)) lvls
 
 -- | Given a @numId@ and level, return the abstract numbering id (the stable
 -- identifier shared by all numbering instances based on the same abstract
@@ -685,7 +690,8 @@ levelElemToLevel ns element
       let start = findChildByName ns "w" "start" element
                   >>= findAttrByName ns "w" "val"
                   >>= stringToInteger
-      return (Level ilvl fmt txt start)
+      let ind = getIndentation ns element >>= leftParIndent
+      return (Level ilvl fmt txt start ind)
 levelElemToLevel _ _ = Nothing
 
 archiveToNumbering' :: Archive -> Maybe Numbering
@@ -698,7 +704,23 @@ archiveToNumbering' zf =
           numElems = findChildrenByName namespaces "w" "num" numberingElem
           absNumElems = findChildrenByName namespaces "w" "abstractNum" numberingElem
           nums = mapMaybe (numElemToNum namespaces) numElems
-          absNums = mapMaybe (absNumElemToAbsNum namespaces) absNumElems
+          parsed = mapMaybe (\el -> (,) el <$> absNumElemToAbsNum namespaces el)
+                     absNumElems
+          linkVal name el = findChildByName namespaces "w" name el
+                            >>= findAttrByName namespaces "w" "val"
+          -- An abstractNum with w:numStyleLink has no levels of its own: they
+          -- are in the abstractNum whose w:styleLink names the same numbering
+          -- style (#9222).
+          levelsByStyle = M.fromList
+            [ (s, lvls) | (el, AbstractNumb _ lvls) <- parsed
+                        , Just s <- [linkVal "styleLink" el] ]
+          resolve (el, absNum@(AbstractNumb absNumId lvls))
+            | null lvls
+            , Just lvls' <- linkVal "numStyleLink" el
+                            >>= (`M.lookup` levelsByStyle)
+            = AbstractNumb absNumId lvls'
+            | otherwise = absNum
+          absNums = map resolve parsed
       return $ Numbering namespaces nums absNums
 
 archiveToNumbering :: Archive -> Numbering
@@ -758,9 +780,13 @@ elemToTblGrid ns element | isElem ns "w" "tblGrid" element = do
         case sum xs of
           tot | tot > 1.0 -> map (/ tot) xs
           _ -> xs
-  normalizeFractions <$>
-    mapD (\e -> maybeToD (findAttrByName ns "w" "w" e >>=
-                          fmap toFraction . safeRead)) cols
+  -- w:w is optional. If a column has no width, we keep it but leave
+  -- every column's width unspecified (0), since writers don't handle
+  -- a mix of specified and unspecified widths well.
+  return $
+    case mapM (findAttrByName ns "w" "w" >=> safeRead) cols of
+      Just widths -> normalizeFractions (map toFraction widths)
+      Nothing -> replicate (length cols) 0
 elemToTblGrid _ _ = throwError WrongElem
 
 elemToTblLook :: NameSpaces -> Element -> D TblLook
@@ -1104,18 +1130,28 @@ elemToParPart ns element
           info <- eitherToD $ parseFieldInfo t
           modify $ \st -> st {stateFldCharState = FldCharContent info [] : ancestors}
           return []
+        -- A field with no instruction (e.g. a dead cross-reference, or
+        -- one whose w:instrText sits inside a tracked change):
+        FldCharOpen : ancestors | fldCharType == "separate" -> do
+          modify $ \st -> st {stateFldCharState = FldCharContent UnknownField [] : ancestors}
+          return []
         -- Some fields have no content, e.g. index XE:
         FldCharFieldInfo t : ancestors | fldCharType == "end" -> do
           modify $ \st -> st {stateFldCharState = ancestors}
           info <- eitherToD $ parseFieldInfo t
           return [Field info []]
-        [FldCharContent info children] | fldCharType == "end" -> do
-          modify $ \st -> st {stateFldCharState = []}
-          return [Field info $ reverse children]
+        FldCharOpen : ancestors | fldCharType == "end" -> do
+          modify $ \st -> st {stateFldCharState = ancestors}
+          return [Field UnknownField []]
         FldCharContent info children : FldCharContent parentInfo siblings : ancestors | fldCharType == "end" ->
           let parent = FldCharContent parentInfo $ (Field info (reverse children)) : siblings in do
             modify $ \st -> st {stateFldCharState = parent : ancestors}
             return []
+        -- Always pop the field, even if the enclosing field is not
+        -- (yet) in its content, so that the state cannot get stuck:
+        FldCharContent info children : ancestors | fldCharType == "end" -> do
+          modify $ \st -> st {stateFldCharState = ancestors}
+          return [Field info $ reverse children]
         _ -> throwError WrongElem
 elemToParPart ns element
   | isElem ns "w" "r" element
@@ -1199,13 +1235,19 @@ elemToParPart' ns element
                 (matchQName "drawingml" "chart" (Just "c") "chart") drawingElem
   = return [Chart]
 elemToParPart' ns element
-  | isElem ns "w" "r" element = do
+  | isElem ns "w" "r" element || isElem ns "w" "customXml" element = do
     runs <- elemToRun ns element
     return $ map PlainRun runs
 elemToParPart' ns element
   | Just change <- getTrackedChange ns element = do
       runs <- mconcat <$> mapD (elemToParPart' ns) (elChildren element)
       return [ChangedRuns change runs]
+elemToParPart' ns element
+  | isElem ns "w" "fldSimple" element
+  , Just instr <- findAttrByName ns "w" "instr" element = do
+    info <- eitherToD $ parseFieldInfo instr
+    children <- mconcat <$> mapD (elemToParPart ns) (elChildren element)
+    return [Field info children]
 elemToParPart' ns element
   | isElem ns "w" "bookmarkStart" element
   , Just bmId <- findAttrByName ns "w" "id" element
@@ -1217,24 +1259,26 @@ elemToParPart' ns element
     location <- asks envLocation
     children <- mconcat <$> mapD (elemToParPart ns) (elChildren element)
     rels <- asks envRelationships
+    let tooltip = fromMaybe "" $ findAttrByName ns "w" "tooltip" element
     case lookupRelationship location relId rels of
       Just target ->
          case findAttrByName ns "w" "anchor" element of
              Just anchor -> return
-               [ExternalHyperLink (target <> "#" <> anchor) children]
-             Nothing -> return [ExternalHyperLink target children]
-      Nothing     -> return [ExternalHyperLink "" children]
+               [ExternalHyperLink (target <> "#" <> anchor) tooltip children]
+             Nothing -> return [ExternalHyperLink target tooltip children]
+      Nothing     -> return [ExternalHyperLink "" tooltip children]
 elemToParPart' ns element
   | isElem ns "w" "hyperlink" element
   , Just anchor <- findAttrByName ns "w" "anchor" element = do
     children <- mconcat <$> mapD (elemToParPart ns) (elChildren element)
-    return [InternalHyperLink anchor children]
+    let tooltip = fromMaybe "" $ findAttrByName ns "w" "tooltip" element
+    return [InternalHyperLink anchor tooltip children]
 elemToParPart' ns element
   | isElem ns "w" "commentRangeStart" element
   , Just cmtId <- findAttrByName ns "w" "id" element = do
-      (Comments _ commentMap) <- asks envComments
+      (Comments cmtNs commentMap) <- asks envComments
       case M.lookup cmtId commentMap of
-        Just cmtElem -> elemToCommentStart ns cmtElem
+        Just cmtElem -> elemToCommentStart cmtNs cmtElem
         Nothing      -> throwError WrongElem
 elemToParPart' ns element
   | isElem ns "w" "commentRangeEnd" element
@@ -1303,17 +1347,17 @@ childElemToRun ns element
 childElemToRun ns element
   | isElem ns "w" "footnoteReference" element
   , Just fnId <- findAttrByName ns "w" "id" element = do
-    notes <- asks envNotes
+    notes@(Notes notesNs _ _) <- asks envNotes
     case lookupFootnote fnId notes of
-      Just e -> do bps <- local (\r -> r {envLocation=InFootnote}) $ mapD (elemToBodyPart ns) (elChildren e)
+      Just e -> do bps <- local (\r -> r {envLocation=InFootnote}) $ mapD (elemToBodyPart notesNs) (elChildren e)
                    return [Footnote bps]
       Nothing  -> return [Footnote []]
 childElemToRun ns element
   | isElem ns "w" "endnoteReference" element
   , Just enId <- findAttrByName ns "w" "id" element = do
-    notes <- asks envNotes
+    notes@(Notes notesNs _ _) <- asks envNotes
     case lookupEndnote enId notes of
-      Just e -> do bps <- local (\r -> r {envLocation=InEndnote}) $ mapD (elemToBodyPart ns) (elChildren e)
+      Just e -> do bps <- local (\r -> r {envLocation=InEndnote}) $ mapD (elemToBodyPart notesNs) (elChildren e)
                    return [Endnote bps]
       Nothing  -> return [Endnote []]
 childElemToRun _ _ = throwError WrongElem
@@ -1336,6 +1380,9 @@ elemToRun ns element
     runElems <- elemToRunElems ns element
     runStyle <- elemToRunStyleD ns element
     return [Run runStyle runElems]
+elemToRun ns element
+  | isElem ns "w" "customXml" element =
+    mconcat <$> mapM (elemToRun ns) (elChildren element)
 elemToRun _ _ = throwError WrongElem
 
 getParentStyleValue :: (ParStyle -> Maybe a) -> ParStyle -> Maybe a
@@ -1504,10 +1551,16 @@ hasCaptionStyle =
 
 stripCaptionLabel :: [Element] -> [Element]
 stripCaptionLabel els =
-  if any isNumberElt els
-     then dropWhile (not . isNumberElt) els
-     else els
+    if null afters
+       then els
+       else filter isBookmark befores <> dropNumber afters
   where
+    (befores, afters) = break isNumberElt els
+    isBookmark (Element name _ _ _) =
+      qName name == "bookmarkStart" || qName name == "bookmarkEnd"
+    -- A w:fldSimple carries the number as its result: drop it with the label.
+    dropNumber (el:rest) | qName (elName el) == "fldSimple" = rest
+    dropNumber rest = rest
     isNumberElt el@(Element name attribs _ _) =
        (qName name == "fldSimple" &&
              case lookupAttrBy ((== "instr") . qName) attribs of

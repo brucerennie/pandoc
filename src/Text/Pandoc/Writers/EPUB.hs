@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP                 #-}
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE PatternGuards       #-}
 {-# LANGUAGE OverloadedStrings   #-}
@@ -22,10 +21,11 @@ import Control.Monad (mplus, unless, when, zipWithM)
 import Control.Monad.Except (catchError, throwError)
 import Control.Monad.State.Strict (State, StateT, evalState, evalStateT, get,
                                    gets, lift, modify)
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Lazy.Char8 as B8
 import Data.Char (isAlphaNum, isAscii, isDigit)
-import Data.List (isInfixOf, isPrefixOf)
+import Data.List (isPrefixOf)
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe, isNothing, mapMaybe, isJust, catMaybes)
 import qualified Data.Set as Set
@@ -38,7 +38,6 @@ import Text.Pandoc.Builder (fromList, setMeta)
 import Text.Pandoc.Writers.Shared (ensureValidXmlIdentifiers)
 import Data.Tree (Tree(..))
 import Text.Pandoc.Class (PandocMonad, report)
-import qualified Text.Pandoc.Class.PandocPure as P
 import Text.Pandoc.Data (readDataFile)
 import qualified Text.Pandoc.Class.PandocMonad as P
 import Data.Time
@@ -48,14 +47,14 @@ import Text.Pandoc.ImageSize
 import Text.Pandoc.Logging
 import Text.Pandoc.MIME (MimeType, extensionFromMimeType, getMimeType)
 import Text.Pandoc.URI (urlEncode)
-import Text.Pandoc.Options (EPUBVersion (..), HTMLMathMethod (..),
+import Text.Pandoc.Options (EPUBVersion (..), MathMethod (..),
                             ObfuscationMethod (NoObfuscation), WrapOption (..),
                             WriterOptions (..))
 import Text.Pandoc.Shared (normalizeDate, renderTags',
-                           stringify, uniqueIdent, tshow)
+                           stringify, stringifyInlines, uniqueIdent, tshow)
 import qualified Text.Pandoc.UTF8 as UTF8
 import Text.Pandoc.UUID (getRandomUUID)
-import Text.Pandoc.Walk (walk, walkM)
+import Text.Pandoc.Walk (query, walk, walkM)
 import Text.Pandoc.Writers.HTML (writeHtmlStringForEPUB)
 import Text.Printf (printf)
 import Text.Pandoc.XML.Light
@@ -204,18 +203,19 @@ getEPUBMetadata opts meta = do
                        return m{ epubLanguage = localeLang }
           else return m
   let fixDate m =
-       if null (epubDate m)
-          then do
+       -- drop dates we could not normalize (dc:date must not be empty)
+       case filter (not . T.null . dateText) (epubDate m) of
+         [] -> do
             currentTime <- lift P.getTimestamp
             return $ m{ epubDate = [ Date{
                              dateText = showDateTimeISO8601 currentTime
                            , dateEvent = Nothing } ] }
-          else return m
+         ds -> return m{ epubDate = ds }
   let addAuthor m =
        if any (\c -> creatorRole c == Just "aut") $ epubCreator m
           then return m
           else do
-            let authors' = map stringify $ docAuthors meta
+            let authors' = map stringifyInlines $ docAuthors meta
             let toAuthor name = Creator{ creatorText = name
                                        , creatorRole = Just "aut"
                                        , creatorFileAs = Nothing }
@@ -280,7 +280,7 @@ addMetadataFromXML _ md = md
 
 metaValueToString :: MetaValue -> Text
 metaValueToString (MetaString s)    = s
-metaValueToString (MetaInlines ils) = stringify ils
+metaValueToString (MetaInlines ils) = stringifyInlines ils
 metaValueToString (MetaBlocks bs)   = stringify bs
 metaValueToString (MetaBool True)   = "true"
 metaValueToString (MetaBool False)  = "false"
@@ -483,7 +483,7 @@ pandocToEPUB version opts doc = do
                         [] -> case epubTitle metadata of
                                    []    -> "UNTITLED"
                                    (x:_) -> titleText x
-                        x  -> stringify x
+                        x  -> stringifyInlines x
 
   -- stylesheet
   stylesheets <- case epubStylesheets metadata of
@@ -589,14 +589,11 @@ pandocToEPUB version opts doc = do
                                     [("page-progression-direction", "rtl")]
                                   _  -> []
 
-  -- incredibly inefficient (TODO):
-  let containsMathML ent = epub3 &&
-                           "<math" `isInfixOf`
-        B8.unpack (fromEntry ent)
-  let containsSVG ent    = epub3 &&
-                           "<svg" `isInfixOf`
-        B8.unpack (fromEntry ent)
-  let props ent = ["mathml" | containsMathML ent] ++ ["svg" | containsSVG ent]
+  let props ent
+        | epub3 = let contents = B.toStrict (fromEntry ent)
+                  in  ["mathml" | "<math" `BS.isInfixOf` contents] ++
+                      ["svg" | "<svg" `BS.isInfixOf` contents]
+        | otherwise = []
 
   let chapterNode ent = unode "item" !
                            ([("id", toId $ makeRelative epubSubdir
@@ -859,7 +856,7 @@ createTocEntry opts meta metadata plainTitle (Node _ secs) = do
           let secnum' = case secNumber secinfo of
                           Just t -> t <> " "
                           Nothing -> ""
-          let title' = secnum' <> stringify (secTitle secinfo)
+          let title' = secnum' <> stringifyInlines (secTitle secinfo)
           return $ Just $ unode "navPoint" !
                    [("id", "navPoint-" <> tshow n)] $
                       [ unode "navLabel" $ unode "text" title'
@@ -869,7 +866,7 @@ createTocEntry opts meta metadata plainTitle (Node _ secs) = do
 
   let tpNode = unode "navPoint" !  [("id", "navPoint-0")] $
                   [ unode "navLabel" $ unode "text"
-                     (stringify $ docTitle' meta)
+                     (stringifyInlines $ docTitle' meta)
                   , unode "content" ! [("src", "text/title_page.xhtml")]
                   $ () ]
 
@@ -913,8 +910,7 @@ createNavEntry  :: PandocMonad m
                 -> StateT EPUBState m Entry
 createNavEntry opts meta metadata
                vars cssvars writeHtml tocTitle version (Node _ secs) = do
-  let mkItem :: Tree SecInfo -> State Int (Maybe Element)
-      mkItem (Node secinfo subsecs)
+  let mkItem (Node secinfo subsecs)
         | secLevel secinfo > writerTOCDepth opts = return Nothing
         | otherwise = do
           n <- get
@@ -929,13 +925,14 @@ createNavEntry opts meta metadata
           let clean (Link _ ils _) = Span ("", [], []) ils
               clean (Note _)       = Str ""
               clean x              = x
-          let titRendered = case P.runPure
-                                  (writeHtmlStringForEPUB version
-                                    opts{ writerTemplate = Nothing }
-                                    (Pandoc nullMeta
-                                      [Plain $ walk clean title'])) of
-                                  Left _  -> stringify title'
-                                  Right x -> x
+          -- render in the host monad, so that a translation table
+          -- loaded for one title is reused for the others:
+          titRendered <- lift $ catchError
+                           (writeHtmlStringForEPUB version
+                              opts{ writerTemplate = Nothing }
+                              (Pandoc nullMeta
+                                [Plain $ walk clean title']))
+                           (\_ -> return $ stringifyInlines title')
           let titElements = either (const []) id $
                                   parseXMLContents (TL.fromStrict titRendered)
 
@@ -949,7 +946,7 @@ createNavEntry opts meta metadata
                            (_:_) -> [unode "ol" ! [("class","toc")] $ subs]
 
   let navtag = if version == EPUB3 then "nav" else "div"
-  let tocBlocks = evalState (catMaybes <$> mapM mkItem secs) 1
+  tocBlocks <- lift $ evalStateT (catMaybes <$> mapM mkItem secs) (1 :: Int)
   let navBlocks = [RawBlock (Format "html")
                   $ showElement $ -- prettyprinting introduces bad spaces
                    unode navtag ! ([("epub:type","toc") | version == EPUB3] ++
@@ -1233,7 +1230,7 @@ transformInline _ _opts (Image attr@(_,_,kvs) lab (src,tit))
     newsrc <- modifyMediaRef $ T.unpack src
     return $ Image attr lab ("../" <> newsrc, tit)
 transformInline _ opts x@(Math t m)
-  | WebTeX url <- writerHTMLMathMethod opts = do
+  | WebTeX url <- writerMathMethod opts = do
     newsrc <- modifyMediaRef (T.unpack (url <> urlEncode m))
     let mathclass = if t == DisplayMath then "display" else "inline"
     return $ Span ("",["math",mathclass],[])
@@ -1261,8 +1258,10 @@ showChapter = T.pack . printf "ch%03d.xhtml"
 
 -- Add identifiers to any headers without them.
 addIdentifiers :: WriterOptions -> [Block] -> [Block]
-addIdentifiers opts bs = evalState (mapM go bs) Set.empty
- where go (Header n (ident,classes,kvs) ils) = do
+addIdentifiers opts bs = evalState (mapM go bs) (Set.fromList (query getId bs))
+ where getId (Header _ (ident,_,_) _) = [ident]
+       getId _ = []
+       go (Header n (ident,classes,kvs) ils) = do
          ids <- get
          let ident' = if T.null ident
                          then uniqueIdent (writerExtensions opts) ils ids

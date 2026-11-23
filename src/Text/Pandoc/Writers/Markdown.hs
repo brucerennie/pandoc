@@ -43,14 +43,14 @@ import Text.Pandoc.Parsing hiding (blankline, blanklines, char, space)
 import Text.DocLayout
 import Text.Pandoc.Shared
 import Text.Pandoc.Writers.Shared
-import Text.Pandoc.Templates (renderTemplate)
 import Text.DocTemplates (Val(..), Context(..), FromContext(..))
 import Text.Pandoc.Walk
 import Text.Pandoc.Writers.HTML (writeHtml5String)
 import Text.Pandoc.Writers.Markdown.Inline (inlineListToMarkdown,
                                             linkAttributes,
                                             attrsToMarkdown,
-                                            attrsToMarkua)
+                                            attrsToMarkua,
+                                            linkDestination)
 import Text.Pandoc.Writers.Markdown.Table (pipeTable, pandocTable)
 import Text.Pandoc.Writers.Markdown.Types (MarkdownVariant(..),
                                            WriterState(..),
@@ -221,9 +221,6 @@ valToYaml _ = empty
 -- | Return markdown representation of document.
 pandocToMarkdown :: PandocMonad m => WriterOptions -> Pandoc -> MD m Text
 pandocToMarkdown opts (Pandoc meta blocks) = do
-  let colwidth = if writerWrapText opts == WrapAuto
-                    then Just $ writerColumns opts
-                    else Nothing
   variant <- asks envVariant
   metadata <- metaToContext'
                (blockListToMarkdown opts)
@@ -271,10 +268,7 @@ pandocToMarkdown opts (Pandoc meta blocks) = do
                      then id
                      else defField "titleblock" titleblock)
                $ addVariablesToContext opts metadata
-  return $ render colwidth $
-    case writerTemplate opts of
-       Nothing  -> main
-       Just tpl -> renderTemplate tpl context
+  return $ renderWithTemplate opts context main
 
 -- | Return markdown representation of reference key table.
 refsToMarkdown :: PandocMonad m => WriterOptions -> Refs -> MD m (Doc Text)
@@ -290,16 +284,26 @@ keyToMarkdown opts (label', (src, tit), attr) = do
                 then empty
                 else space <> "\"" <> literal tit <> "\""
   return $ nest 2 $ hang 2
-            ("[" <> literal label' <> "]:" <> space) (literal src <> tit')
+            ("[" <> literal label' <> "]:" <> space)
+            (literal (linkDestination src) <> tit')
             <+> linkAttributes opts attr
 
--- | Return markdown representation of notes.
-notesToMarkdown :: PandocMonad m => WriterOptions -> [[Block]] -> MD m (Doc Text)
-notesToMarkdown opts notes = do
-  n <- gets stNoteNum
-  notes' <- zipWithM (noteToMarkdown opts) [n..] notes
-  modify $ \st -> st { stNoteNum = stNoteNum st + length notes }
-  return $ vsep notes'
+-- | Return markdown representation of the collected notes, clearing
+-- them from the state. Rendering a note may add further notes to the
+-- state (notes nested inside notes); keep going until all of them
+-- have been rendered.
+notesToMarkdown :: PandocMonad m => WriterOptions -> MD m (Doc Text)
+notesToMarkdown opts = vsep <$> go
+  where
+    go = do
+      notes <- gets (reverse . stNotes)
+      if null notes
+        then return []
+        else do
+          n <- gets stNoteNum
+          modify $ \st -> st { stNotes = [], stNoteNum = n + length notes }
+          docs <- zipWithM (noteToMarkdown opts) [n..] notes
+          (docs ++) <$> go
 
 -- | Return markdown representation of a note.
 noteToMarkdown :: PandocMonad m => WriterOptions -> Int -> [Block] -> MD m (Doc Text)
@@ -345,8 +349,7 @@ beginsWithOrderedListMarker str =
 
 notesAndRefs :: PandocMonad m => WriterOptions -> MD m (Doc Text)
 notesAndRefs opts = do
-  notes' <- gets stNotes >>= notesToMarkdown opts . reverse
-  modify $ \s -> s { stNotes = [] }
+  notes' <- notesToMarkdown opts
   refs' <- gets stRefs >>= refsToMarkdown opts . reverse
   modify $ \s -> s { stPrevRefs = stPrevRefs s ++ stRefs s
                    , stRefs = []}
@@ -429,28 +432,39 @@ blockToMarkdown' opts (Div attrs@(_,classes,_) bs)
          where (id',classes',kvs') = attrs
                attrs' = (id',classes',("markdown","1"):kvs')
 blockToMarkdown' opts (Plain inlines) = do
-  -- escape if para starts with ordered list marker
+  -- escape if a line starts with a list marker.  This must be done at the
+  -- start of every line, not just the start of the block: a sublist can
+  -- interrupt a list item's text after a LineBreak, so an unescaped marker
+  -- there would be read back as a nested list, destroying the LineBreak.
   variant <- asks envVariant
   let escapeMarker = T.concatMap $ \x -> if T.any (== x) ".()"
                                          then T.pack ['\\', x]
                                          else T.singleton x
   let startsWithSpace (Space:_)     = True
       startsWithSpace (SoftBreak:_) = True
+      startsWithSpace (LineBreak:_) = True
       startsWithSpace _             = False
+  let escapeLineStart ils =
+        case ils of
+          (Str t:ys)
+            | null ys || startsWithSpace ys
+            , beginsWithOrderedListMarker t
+            -> RawInline (Format "markdown") (escapeMarker t):ys
+          (Str t:_)
+            | t == "+" || t == "-" ||
+              (t == "%" && isEnabled Ext_pandoc_title_block opts &&
+                           isEnabled Ext_all_symbols_escapable opts)
+            -> RawInline (Format "markdown") "\\" : ils
+          _ -> ils
+  -- apply escapeLineStart to the head of the list, then after each LineBreak
+  let go ils = case ils of
+                 []             -> []
+                 (LineBreak:ys) -> LineBreak : go (escapeLineStart ys)
+                 (y:ys)         -> y : go ys
   let inlines' =
         if variant == PlainText
            then inlines
-           else case inlines of
-                  (Str t:ys)
-                    | null ys || startsWithSpace ys
-                    , beginsWithOrderedListMarker t
-                    -> RawInline (Format "markdown") (escapeMarker t):ys
-                  (Str t:_)
-                    | t == "+" || t == "-" ||
-                      (t == "%" && isEnabled Ext_pandoc_title_block opts &&
-                                   isEnabled Ext_all_symbols_escapable opts)
-                    -> RawInline (Format "markdown") "\\" : inlines
-                  _ -> inlines
+           else go (escapeLineStart inlines)
   contents <- inlineListToMarkdown opts inlines'
   return $ contents <> cr
 blockToMarkdown' opts (Para inlines) =
@@ -608,7 +622,10 @@ blockToMarkdown' opts (CodeBlock attribs str) = do
                    let (_,cls,_) = attribs
                     in case getLangFromClasses opts cls of
                               Just l -> " " <> literal l
-                              Nothing -> empty
+                              Nothing -> -- see #11987
+                                case cls of
+                                  l:_ -> literal l
+                                  [] -> empty
 blockToMarkdown' opts (BlockQuote blocks) = do
   variant <- asks envVariant
   -- if we're writing literate haskell, put a space before the bird tracks
@@ -672,13 +689,11 @@ blockToMarkdown' opts t@(Table attr blkCapt specs thead tbody tfoot) = do
          isEnabled Ext_pipe_tables opts -> do
            tbl <- mkTable (pipeTable opts)
            return $ (tbl $$ caption''') $$ blankline
-       | not (hasBlocks || hasColRowSpans || hasFooter) &&
+       | not (hasBlocks || hasColRowSpans || hasFooter || null rows) &&
          isEnabled Ext_multiline_tables opts -> do
            tbl <- mkTable (pandocTable opts True)
            return $ nest 2 (tbl $$ caption''') $$ blankline
-       | isEnabled Ext_grid_tables opts &&
-          (hasColRowSpans || writerColumns opts >= 8 * numcols
-                          || hasFooter) -> do
+       | isEnabled Ext_grid_tables opts -> do
            tbl <- gridTable opts blockListToMarkdown
                      specs thead tbody tfoot
            return $ (tbl $$ caption''') $$ blankline
@@ -754,8 +769,8 @@ blockToMarkdown' opts (Figure figattr capt body) = do
                             (i,c,kv)
                               | not (null alt)
                               , Nothing <- lookup "alt" kv
-                              , stringify descr /= stringify alt ->
-                                 (i, c, ("alt", stringify alt) : kv)
+                              , stringifyInlines descr /= stringifyInlines alt ->
+                                 (i, c, ("alt", stringifyInlines alt) : kv)
                             _ -> imgAttr'
           contents <- inlineListToMarkdown opts [Image imgAttr'' descr tgt']
           return $ contents <> blankline

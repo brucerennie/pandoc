@@ -40,6 +40,19 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Don't use a secret for this: secrets are empty in PRs from forks, which
+# keeps those PRs from restoring main's caches.
+env:
+  STACK_CACHE_VERSION: '3'
+
+# Caches are saved only on pushes to main.  PRs can restore them but don't
+# save their own, which would evict main's caches.  dist-newstyle's key
+# includes the week, so that it gets refreshed even if the plan doesn't change.
+
 jobs:
   linux:
 
@@ -49,29 +62,53 @@ jobs:
       matrix:
         versions:
           # NOTE: Update `CONTRIBUTING.md` when changing the minimum version
+          # NOTE: Use the same cabal version as nightly.yml and
+          # release-candidate.yml, since unit ids depend on it.
           - ghc: '9.6'
-            cabal: 'latest'
+            cabal: '3.18.2.0'
             cabalopts: '--ghc-option=-Werror'
           - ghc: '9.8'
-            cabal: 'latest'
+            cabal: '3.18.2.0'
             cabalopts: '--ghc-option=-Werror'
           - ghc: '9.10'
-            cabal: 'latest'
+            cabal: '3.18.2.0'
             cabalopts: '--ghc-option=-Werror'
           - ghc: '9.12'
-            cabal: 'latest'
+            cabal: '3.18.2.0'
+            cabalopts: '--ghc-option=-Werror'
+          - ghc: '9.12'
+            cabal: '3.18.2.0'
+            cabalopts: '--ghc-option=-Werror -f-embed_data_files'
+          - ghc: '9.14'
+            cabal: '3.18.2.0'
             cabalopts: '--ghc-option=-Werror'
 
     steps:
     - uses: actions/checkout@v7
 
-    # needed by memory
-    - name: Install numa
-      run: sudo apt-get install libnuma-dev
-
     - name: Workaround runner image issue
       # https://github.com/actions/runner-images/issues/7061
       run: sudo chown -R $USER /usr/local/.ghcup
+
+    - name: Resolve GHC version
+      id:   ghc
+      shell: bash
+      run: |
+          version=$(ghcup list -t ghc -c available -r | awk -v prefix="${{ matrix.versions.ghc }}." 'index($2, prefix) == 1 { print $2 }' | sort -V | tail -1)
+          test -n "$version"
+          dir="$(ghcup whereis basedir)/ghc/$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+          echo "preinstalled=$(test -d "$dir" && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "os=$(. /etc/os-release && echo "$ID-$VERSION_ID")" >> "$GITHUB_OUTPUT"
+
+    - name: Cache GHC installation
+      if:   steps.ghc.outputs.preinstalled != 'true'
+      uses: actions/cache@v6
+      with:
+        path: |
+          ${{ steps.ghc.outputs.dir }}
+        key: ${{ steps.ghc.outputs.os }}-ghc-install-${{ secrets.CACHE_VERSION }}-${{ steps.ghc.outputs.version }}
 
     - name: Install cabal/ghc
       run: |
@@ -80,30 +117,54 @@ jobs:
 
     # declare/restore cached things
 
-    - name: Cache cabal global package db
+    - name: Update cabal and compute cache keys
+      id:   cabal-keys
+      uses: ./.github/actions/cabal-cache-key
+
+    - name: Restore cabal store
       id:   cabal-global
-      uses: actions/cache@v6
+      uses: actions/cache/restore@v6
       with:
         path: |
-          ~/.local/state/cabal
-        key: ${{ runner.os }}-${{ matrix.versions.ghc }}-${{ matrix.versions.cabal }}-cabal-global-${{ secrets.CACHE_VERSION }}
+          ${{ steps.cabal-keys.outputs.store-dir }}
+        key: ${{ steps.cabal-keys.outputs.store-key }}
+        restore-keys: |
+          ${{ steps.cabal-keys.outputs.store-restore-key }}
 
-    - name: Cache cabal work
+    - name: Restore cabal work
       id:   cabal-local
-      uses: actions/cache@v6
+      uses: actions/cache/restore@v6
       with:
         path: |
           dist-newstyle
-        key: ${{ runner.os }}-${{ matrix.versions.ghc }}-${{ matrix.versions.cabal }}-cabal-local-${{ secrets.CACHE_VERSION }}
+        key: ${{ steps.cabal-keys.outputs.prefix }}-local-${{ strategy.job-index }}-${{ steps.cabal-keys.outputs.plan-hash }}-${{ steps.cabal-keys.outputs.week }}
+        restore-keys: |
+          ${{ steps.cabal-keys.outputs.prefix }}-local-${{ strategy.job-index }}-${{ steps.cabal-keys.outputs.plan-hash }}-
+          ${{ steps.cabal-keys.outputs.prefix }}-local-${{ strategy.job-index }}-
 
-    - name: Update cabal
-      run: |
-          cabal update
-
+    # Use --enable-tests in both commands: otherwise they can
+    # use different dependencies, and everything is compiled twice.
     - name: Build and test
       run: |
+          make check-sdist
           cabal build ${{ matrix.versions.cabalopts }} --enable-tests --disable-optimization all
-          cabal test ${{ matrix.versions.cabalopts }} --disable-optimization all
+          cabal test ${{ matrix.versions.cabalopts }} --enable-tests --disable-optimization all
+
+    - name: Save cabal store
+      if: github.event_name == 'push' && steps.cabal-global.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: |
+          ${{ steps.cabal-keys.outputs.store-dir }}
+        key: ${{ steps.cabal-global.outputs.cache-primary-key }}
+
+    - name: Save cabal work
+      if: github.event_name == 'push' && steps.cabal-local.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: |
+          dist-newstyle
+        key: ${{ steps.cabal-local.outputs.cache-primary-key }}
 
   linux-stack:
 
@@ -115,28 +176,48 @@ jobs:
 
     # needed by memory
     - name: Install numa
-      run: sudo apt-get install libnuma-dev
+      run: sudo apt-get update && sudo apt-get install libnuma-dev
 
     # declare/restore cached things
-    - name: Cache stack global package db
+    - name: Restore stack global package db
       id:   stack-global
-      uses: actions/cache@v6
+      uses: actions/cache/restore@v6
       with:
         path: |
           ~/.stack
-        key: ${{ runner.os }}-${{ matrix.versions.ghc }}-${{ matrix.versions.cabal }}-stack-global-${{ secrets.CACHE_VERSION }}
+        key: ${{ runner.os }}-stack-global-${{ env.STACK_CACHE_VERSION }}-${{ hashFiles('stack.yaml', '**/*.cabal') }}
+        restore-keys: |
+          ${{ runner.os }}-stack-global-${{ env.STACK_CACHE_VERSION }}-
 
-    - name: Cache stack work
+    - name: Restore stack work
       id:   stack-local
-      uses: actions/cache@v6
+      uses: actions/cache/restore@v6
       with:
         path: |
           .stack-work
-        key: ${{ runner.os }}-${{ matrix.versions.ghc }}-${{ matrix.versions.cabal }}-stack-local-${{ secrets.CACHE_VERSION }}
+        key: ${{ runner.os }}-stack-local-${{ env.STACK_CACHE_VERSION }}-${{ hashFiles('stack.yaml', '**/*.cabal') }}
+        restore-keys: |
+          ${{ runner.os }}-stack-local-${{ env.STACK_CACHE_VERSION }}-
 
     - name: Build and test
       run: |
           stack test --fast
+
+    - name: Save stack global package db
+      if: github.event_name == 'push' && steps.stack-global.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: |
+          ~/.stack
+        key: ${{ steps.stack-global.outputs.cache-primary-key }}
+
+    - name: Save stack work
+      if: github.event_name == 'push' && steps.stack-local.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: |
+          .stack-work
+        key: ${{ steps.stack-local.outputs.cache-primary-key }}
 
   windows:
 
@@ -148,28 +229,55 @@ jobs:
     - name: Install ghc
       run: |
         ghcup install ghc --set 9.10
-        ghcup install cabal --set latest
+        ghcup install cabal --set 3.18.2.0
 
     # declare/restore cached things
 
-    - name: Cache cabal global package db
+    - name: Update cabal and compute cache keys
+      id:   cabal-keys
+      uses: ./.github/actions/cabal-cache-key
+
+    - name: Restore cabal store
       id:   cabal-global
-      uses: actions/cache@v6
+      uses: actions/cache/restore@v6
       with:
         path: |
-          %LOCALAPPDATA%/cabal/store
-        key: ${{ runner.os }}-appdata-cabal-${{ hashFiles('cabal.project') }}-${{ secrets.CACHE_VERSION }}
+          ${{ steps.cabal-keys.outputs.store-dir }}
+        key: ${{ steps.cabal-keys.outputs.store-key }}
+        restore-keys: |
+          ${{ steps.cabal-keys.outputs.store-restore-key }}
 
-    - name: Cache cabal work
+    - name: Restore cabal work
       id: cabal-local
-      uses: actions/cache@v6
+      uses: actions/cache/restore@v6
       with:
         path: |
           dist-newstyle
-        key: ${{ runner.os }}-stack-work-${{ hashFiles('cabal.project') }}-${{ secrets.CACHE_VERSION }}
+        key: ${{ steps.cabal-keys.outputs.prefix }}-local-${{ steps.cabal-keys.outputs.plan-hash }}-${{ steps.cabal-keys.outputs.week }}
+        restore-keys: |
+          ${{ steps.cabal-keys.outputs.prefix }}-local-${{ steps.cabal-keys.outputs.plan-hash }}-
+          ${{ steps.cabal-keys.outputs.prefix }}-local-
 
+    # cabal test by itself doesn't build pandoc-cli or the dependencies of
+    # pandoc-server, which nightly and release candidate builds need in the store.
     - name: Build and test
       run: |
-          cabal update
-          cabal test --ghc-option=-Werror -fhttp --enable-tests --disable-optimization --ghc-options=-Werror all
+          cabal build --ghc-option=-Werror -fhttp --enable-tests --disable-optimization all
+          cabal test --ghc-option=-Werror -fhttp --enable-tests --disable-optimization all
+
+    - name: Save cabal store
+      if: github.event_name == 'push' && steps.cabal-global.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: |
+          ${{ steps.cabal-keys.outputs.store-dir }}
+        key: ${{ steps.cabal-global.outputs.cache-primary-key }}
+
+    - name: Save cabal work
+      if: github.event_name == 'push' && steps.cabal-local.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: |
+          dist-newstyle
+        key: ${{ steps.cabal-local.outputs.cache-primary-key }}
 

@@ -55,6 +55,8 @@ module Text.Pandoc.Writers.Shared (
                      , insertCurrentSpansAtColumn
                      , takePreviousSpansAtColumn
                      , decrementTrailingRowSpans
+                     , wrapColumns
+                     , renderWithTemplate
                      )
 where
 import Safe (lastMay, maximumMay)
@@ -77,12 +79,13 @@ import Text.Pandoc.Options
 import Text.Pandoc.Parsing (runParser, eof, defaultParserState,
                             anyOrderedListMarker)
 import Text.DocLayout
-import Text.Pandoc.Shared (stringify, makeSections, blocksToInlines)
+import Text.Pandoc.Shared (stringify, stringifyInlines, makeSections,
+                           blocksToInlines)
 import Text.Pandoc.Walk (Walkable(..))
 import qualified Text.Pandoc.UTF8 as UTF8
 import Text.Pandoc.XML (escapeStringForXML, rdfaAttributes, html5Attributes)
 import Text.DocTemplates (Context(..), Val(..), TemplateTarget,
-                          ToContext(..), FromContext(..))
+                          ToContext(..), FromContext(..), renderTemplate)
 import Text.Pandoc.Chunks (tocToList, toTOCTree)
 import Text.Collate.Lang (Lang (..))
 import Text.Pandoc.Class (PandocMonad, toLang)
@@ -109,6 +112,24 @@ metaToContext opts blockWriter inlineWriter meta =
     Nothing -> return mempty
     Just _  -> addVariablesToContext opts <$>
                 metaToContext' blockWriter inlineWriter meta
+
+-- | The line length to use in rendering: 'writerColumns' if
+-- 'writerWrapText' is 'WrapAuto', otherwise 'Nothing' (no wrapping).
+wrapColumns :: WriterOptions -> Maybe Int
+wrapColumns opts =
+  if writerWrapText opts == WrapAuto
+     then Just $ writerColumns opts
+     else Nothing
+
+-- | Render a document body, inserting it into 'writerTemplate'
+-- (with the given context) if there is a template, and wrapping
+-- lines according to 'wrapColumns'.
+renderWithTemplate :: WriterOptions -> Context Text -> Doc Text -> Text
+renderWithTemplate opts context main =
+  render (wrapColumns opts) $
+    case writerTemplate opts of
+       Nothing  -> main
+       Just tpl -> renderTemplate tpl context
 
 -- | Like 'metaToContext, but does not include variables and is
 -- not sensitive to 'writerTemplate'.
@@ -195,24 +216,25 @@ getLang opts meta =
                _                                 -> Nothing
 
 -- | Produce an HTML tag with the given pandoc attributes.
-tagWithAttrs :: HasChars a => a -> Attr -> Doc a
+tagWithAttrs :: (HasChars a, FromText a) => a -> Attr -> Doc a
 tagWithAttrs tag attr = "<" <> literal tag <> (htmlAttrs attr) <> ">"
 
 -- | Produce HTML for the given pandoc attributes, to be used in HTML tags
-htmlAttrs :: HasChars a => Attr -> Doc a
+htmlAttrs :: (HasChars a, FromText a) => Attr -> Doc a
 htmlAttrs (ident, classes, kvs) = addSpaceIfNotEmpty (hsep [
   if T.null ident
       then empty
-      else "id=" <> doubleQuotes (text $ T.unpack ident)
+      else "id=" <> doubleQuotes (literal $ fromText (escapeStringForXML ident))
   ,if null classes
       then empty
-      else "class=" <> doubleQuotes (text $ T.unpack (T.unwords classes))
+      else "class=" <> doubleQuotes
+             (literal $ fromText . escapeStringForXML $ T.unwords classes)
   ,hsep (map (\(k,v) -> formatKey k <> "=" <>
-                doubleQuotes (text $ T.unpack (escapeStringForXML v))) kvs)
+                doubleQuotes (literal $ fromText (escapeStringForXML v))) kvs)
   ])
  where
-   formatKey x = text . T.unpack $
-        if (x `Set.member` (html5Attributes <> rdfaAttributes)
+   formatKey x = literal . fromText $
+        if ((x `Set.member` html5Attributes || x `Set.member` rdfaAttributes)
             && x /= "label") -- #10048
              || T.any (== ':') x -- e.g. epub: namespace
              || "data-" `T.isPrefixOf` x
@@ -259,8 +281,8 @@ isDisplayMath _                             = False
 -- | Remove leading and trailing 'Space' and 'SoftBreak' elements.
 stripLeadingTrailingSpace :: [Inline] -> [Inline]
 stripLeadingTrailingSpace = go . reverse . go . reverse
-  where go (Space:xs)     = xs
-        go (SoftBreak:xs) = xs
+  where go (Space:xs)     = go xs
+        go (SoftBreak:xs) = go xs
         go xs             = xs
 
 -- | Put display math in its own block (for ODT/DOCX).
@@ -607,8 +629,8 @@ gridRow opts blocksToDoc = mapM renderCell
 lookupMetaBool :: Text -> Meta -> Bool
 lookupMetaBool key meta =
   case lookupMeta key meta of
-      Just (MetaBlocks _)  -> True
-      Just (MetaInlines _) -> True
+      Just (MetaBlocks bs)  -> not (null bs)
+      Just (MetaInlines ils) -> not (null ils)
       Just (MetaString x)  -> not (T.null x)
       Just (MetaBool True) -> True
       _                    -> False
@@ -646,7 +668,7 @@ lookupMetaString :: Text -> Meta -> Text
 lookupMetaString key meta =
   case lookupMeta key meta of
          Just (MetaString s)    -> s
-         Just (MetaInlines ils) -> stringify ils
+         Just (MetaInlines ils) -> stringifyInlines ils
          Just (MetaBlocks bs)   -> stringify bs
          Just (MetaBool b)      -> T.pack (show b)
          _                      -> ""
@@ -677,6 +699,7 @@ toSubscript '-' = Just '\x208B'
 toSubscript '=' = Just '\x208C'
 toSubscript '(' = Just '\x208D'
 toSubscript ')' = Just '\x208E'
+toSubscript '\x2212' = Just '\x208B' -- unicode minus
 toSubscript c
   | c >= '0' && c <= '9' =
                  Just $ chr (0x2080 + (ord c - 48))
@@ -716,6 +739,10 @@ endsWithPlain xs =
     Just Plain{} -> True
     Just (BulletList is) -> maybe False endsWithPlain (lastMay is)
     Just (OrderedList _ is) -> maybe False endsWithPlain (lastMay is)
+    Just (DefinitionList defs) ->
+      case lastMay defs of
+        Just (_, ds) -> maybe False endsWithPlain (lastMay ds)
+        Nothing      -> False
     _ -> False
 
 -- | Convert the relevant components of a new-style table (with block
@@ -799,12 +826,13 @@ splitSentences = go . toList
   isSentenceEnding t =
     case T.unsnoc t of
       Just (t',c)
-        | c == '.' || c == '!' || c == '?'
+        | c == '.'
         , not (isInitial t') -> True
+        | c == '!' || c == '?' -> True
         | c == ')' || c == ']' || c == '"' || c == '\x201D' ->
            case T.unsnoc t' of
-             Just (t'',d) -> d == '.' || d == '!' || d == '?' &&
-                             not (isInitial t'')
+             Just (t'',d) -> (d == '.' && not (isInitial t''))
+                               || d == '!' || d == '?'
              _ -> False
       _ -> False
    where
@@ -814,43 +842,45 @@ splitSentences = go . toList
 -- and modify internal links accordingly. (Yes, XML allows an
 -- underscore, but HTML 4 doesn't, so we are more conservative.)
 ensureValidXmlIdentifiers :: Pandoc -> Pandoc
-ensureValidXmlIdentifiers = walk fixLinks . walkAttr fixIdentifiers
+ensureValidXmlIdentifiers = walk goInline . walk goBlock
  where
-  fixIdentifiers (ident, classes, kvs) =
+  fixAttr (ident, classes, kvs) =
     (case T.uncons ident of
       Nothing -> ident
       Just (c, _) | isLetter c -> ident
       _ -> "id_" <> ident,
      classes, kvs)
-  needsFixing src =
+  fixSrc src =
     case T.uncons src of
       Just ('#',t) ->
         case T.uncons t of
-          Just (c,_) | not (isLetter c) -> Just ("#id_" <> t)
-          _ -> Nothing
-      _ -> Nothing
-  fixLinks (Link attr ils (src, tit))
-    | Just src' <- needsFixing src = Link attr ils (src', tit)
-  fixLinks (Image attr ils (src, tit))
-    | Just src' <- needsFixing src = Image attr ils (src', tit)
-  fixLinks x = x
+          Just (c,_) | not (isLetter c) -> "#id_" <> t
+          _ -> src
+      _ -> src
 
--- | Walk Pandoc document, modifying attributes.
-walkAttr :: (Attr -> Attr) -> Pandoc -> Pandoc
-walkAttr f = walk goInline . walk goBlock
- where
-  goInline (Span attr ils) = Span (f attr) ils
-  goInline (Link attr ils target) = Link (f attr) ils target
-  goInline (Image attr ils target) = Image (f attr) ils target
-  goInline (Code attr txt) = Code (f attr) txt
+  goInline (Span attr ils) = Span (fixAttr attr) ils
+  goInline (Link attr ils (src, tit)) = Link (fixAttr attr) ils (fixSrc src, tit)
+  goInline (Image attr ils (src, tit)) =
+    Image (fixAttr attr) ils (fixSrc src, tit)
+  goInline (Code attr txt) = Code (fixAttr attr) txt
   goInline x = x
 
-  goBlock (Header lev attr ils) = Header lev (f attr) ils
-  goBlock (CodeBlock attr txt) = CodeBlock (f attr) txt
+  goBlock (Header lev attr ils) = Header lev (fixAttr attr) ils
+  goBlock (CodeBlock attr txt) = CodeBlock (fixAttr attr) txt
   goBlock (Table attr cap colspecs thead tbodies tfoot) =
-    Table (f attr) cap colspecs thead tbodies tfoot
-  goBlock (Div attr bs) = Div (f attr) bs
+    Table (fixAttr attr) cap colspecs
+      (goTableHead thead) (map goTableBody tbodies) (goTableFoot tfoot)
+  goBlock (Div attr bs) = Div (fixAttr attr) bs
+  goBlock (Figure attr cap bs) = Figure (fixAttr attr) cap bs
   goBlock x = x
+
+  goTableHead (TableHead attr rows) = TableHead (fixAttr attr) (map goRow rows)
+  goTableBody (TableBody attr rhc hd bd) =
+    TableBody (fixAttr attr) rhc (map goRow hd) (map goRow bd)
+  goTableFoot (TableFoot attr rows) = TableFoot (fixAttr attr) (map goRow rows)
+  goRow (Row attr cells) = Row (fixAttr attr) (map goCell cells)
+  goCell (Cell attr align rowspan colspan bs) =
+    Cell (fixAttr attr) align rowspan colspan bs
 
 -- | Convert links to spans; most useful when writing elements that must not
 -- contain links, e.g. to avoid nested links.
@@ -878,8 +908,12 @@ isOrderedListMarker xs = not (T.null xs) && (T.last xs `elem` ['.',')']) &&
 toTaskListItem :: MonadPlus m => [Block] -> m (Bool, [Block])
 toTaskListItem (Plain (Str "☐":Space:ils):xs) = pure (False, Plain ils:xs)
 toTaskListItem (Plain (Str "☒":Space:ils):xs) = pure (True, Plain ils:xs)
+toTaskListItem (Plain [Str "☐"]:xs)           = pure (False, Plain []:xs)
+toTaskListItem (Plain [Str "☒"]:xs)           = pure (True, Plain []:xs)
 toTaskListItem (Para  (Str "☐":Space:ils):xs) = pure (False, Para ils:xs)
 toTaskListItem (Para  (Str "☒":Space:ils):xs) = pure (True, Para ils:xs)
+toTaskListItem (Para  [Str "☐"]:xs)           = pure (False, Para []:xs)
+toTaskListItem (Para  [Str "☒"]:xs)           = pure (True, Para []:xs)
 toTaskListItem _                              = mzero
 
 -- | Add an opener and closer to a Doc. If the Doc begins or ends
@@ -960,9 +994,11 @@ takePreviousSpansAtColumn columnPosition previousSpans
 -- For handling previous row spans that are next to the end of a row's cells
 -- that were previously added with 'insertCurrentSpansAtColumn'.
 decrementTrailingRowSpans :: Int -> M.Map Int (RowSpan, ColSpan) -> M.Map Int (RowSpan, ColSpan)
-decrementTrailingRowSpans columnPosition = M.mapWithKey decrementTrailing
+decrementTrailingRowSpans columnPosition = M.mapMaybeWithKey decrementTrailing
   where
-    decrementTrailing previousColumnPosition previousSpan@(RowSpan rowSpan, colSpan) =
-      if previousColumnPosition >= columnPosition && rowSpan >= 1
-        then (RowSpan rowSpan - 1, colSpan)
-        else previousSpan
+    decrementTrailing previousColumnPosition previousSpan@(RowSpan rowSpan, colSpan)
+      | previousColumnPosition >= columnPosition && rowSpan >= 1 =
+          if rowSpan > 1
+            then Just (RowSpan rowSpan - 1, colSpan)
+            else Nothing  -- span is used up; drop it instead of keeping a 0 entry
+      | otherwise = Just previousSpan

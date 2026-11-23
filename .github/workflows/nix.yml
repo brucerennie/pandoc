@@ -11,6 +11,11 @@ on:
     branches:
     - 'main'
   pull_request:
+    paths:
+    - 'stack.yaml'
+    - 'pandoc.cabal'
+    - 'flake.nix'
+    - 'flake.lock'
   workflow_dispatch:
 
 permissions:
@@ -29,7 +34,6 @@ jobs:
       matrix:
         os:
         - ubuntu-latest
-        - macos-latest
     steps:
     - uses: actions/checkout@v7
 
@@ -42,7 +46,7 @@ jobs:
     # Cache the /nix/store across runs so dependencies don't recompile.
     - uses: nix-community/cache-nix-action@v7
       with:
-        primary-key: nix-${{ matrix.os }}-${{ hashFiles('flake.lock', 'flake.nix', '**/*.cabal', 'cabal.project') }}
+        primary-key: nix-${{ matrix.os }}-${{ hashFiles('flake.lock', 'flake.nix', 'stack.yaml', '**/*.cabal', 'cabal.project') }}
         restore-prefixes-first-match: nix-${{ matrix.os }}-
 
     - name: nix build

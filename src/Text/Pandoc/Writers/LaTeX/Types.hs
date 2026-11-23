@@ -29,7 +29,8 @@ data WriterState =
   , stInItem        :: Bool          -- ^ true if in \item[..]
   , stInFigure      :: Bool          -- ^ true if in figure environment
   , stInCite        :: Bool          -- ^ true if in a Cite
-  , stNotes         :: [Doc Text]    -- ^ notes in a minipage
+  , stNotes         :: [(Int, Doc Text)] -- ^ deferred notes (id, text)
+  , stDeferredNoteNum :: Int         -- ^ number of deferred notes so far
   , stOLLevel       :: Int           -- ^ level of ordered list nesting
   , stOptions       :: WriterOptions -- ^ writer options, so they don't have to
                                      --   be parameter
@@ -47,7 +48,6 @@ data WriterState =
   , stHighlighting  :: Bool          -- ^ true if document has highlighted code
   , stIncremental   :: Bool          -- ^ true if beamer lists should be
   , stZwnj          :: Bool          -- ^ true if document has a ZWNJ character
-  , stInternalLinks :: [Text]        -- ^ list of internal link targets
   , stBeamer        :: Bool          -- ^ produce beamer
   , stEmptyLine     :: Bool          -- ^ true if no content on line
   , stHasCslRefs    :: Bool          -- ^ has a Div with class refs
@@ -77,6 +77,7 @@ startingState options =
   , stInFigure = False
   , stInCite = False
   , stNotes = []
+  , stDeferredNoteNum = 0
   , stOLLevel = 1
   , stOptions = options
   , stVerbInNote = False
@@ -96,7 +97,6 @@ startingState options =
   , stHighlighting = False
   , stIncremental = writerIncremental options
   , stZwnj = False
-  , stInternalLinks = []
   , stBeamer = False
   , stEmptyLine = True
   , stHasCslRefs = False

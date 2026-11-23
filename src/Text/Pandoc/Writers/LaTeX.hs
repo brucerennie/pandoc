@@ -33,14 +33,14 @@ import Control.Monad
 import Crypto.Hash (hashWith, MD5(MD5))
 import Data.Containers.ListUtils (nubOrd)
 import Data.Char (isDigit, isAscii, isLetter)
-import Data.List (intersperse, partition, (\\))
+import Data.List (find, intersperse, partition)
 import qualified Data.Set as Set
 import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe, isNothing)
 import Data.Monoid (Any (..))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Network.URI (unEscapeString)
-import Text.DocTemplates (Context(..), FromContext(lookupContext), Val(..), renderTemplate)
+import Text.DocTemplates (Context(..), FromContext(lookupContext), Val(..))
 import qualified Data.Map as M
 import Text.Collate.Lang (renderLang)
 import Text.Pandoc.Class.PandocMonad (PandocMonad, getPOSIXTime, lookupEnv,
@@ -128,14 +128,6 @@ pandocToLaTeX options (Pandoc meta blocks) = do
   let blocks' = if method == Biblatex || method == Natbib
                    then filter (not . isRefsDiv) blocks
                    else blocks
-  -- see if there are internal links
-  let isInternalLink (Link _ _ (s,_))
-        | Just ('#', xs) <- T.uncons s = [xs]
-      isInternalLink _                 = []
-  modify $ \s -> s{ stInternalLinks = query isInternalLink blocks' }
-  let colwidth = if writerWrapText options == WrapAuto
-                    then Just $ writerColumns options
-                    else Nothing
   docLangs <- catMaybes <$>
       mapM (toLang . Just) (nubOrd (query (extract "lang") blocks))
   mblang <- toLang $ case getLang options meta of
@@ -186,22 +178,26 @@ pandocToLaTeX options (Pandoc meta blocks) = do
   biblioTitle <- inlineListToLaTeX lastHeader
   st <- get
   titleMeta <- escapeCommas <$> -- see #10501
-                stringToLaTeX TextString (stringify $ docTitle meta)
-  subtitleMeta <- stringToLaTeX TextString (stringify $ lookupMetaInlines "subtitle" meta)
-  authorsMeta <- mapM (stringToLaTeX TextString . stringify) $ docAuthors meta
+                stringToLaTeX TextString (stringifyInlines $ docTitle meta)
+  subtitleMeta <- stringToLaTeX TextString
+                    (stringifyInlines $ lookupMetaInlines "subtitle" meta)
+  authorsMeta <- mapM (stringToLaTeX TextString . stringifyInlines) $
+                   docAuthors meta
   -- The trailer ID is as hash used to identify the PDF. Taking control of its
   -- value is important when aiming for reproducible PDF generation. Setting
   -- `SOURCE_DATE_EPOCH` is the traditional method used to control
   -- reproducible builds. There are no cryptographic requirements for the ID,
   -- so the 128bits (16 bytes) of MD5 are appropriate.
   reproduciblePDF <- isJust <$> lookupEnv "SOURCE_DATE_EPOCH"
-  trailerID <- do
-    time <- getPOSIXTime
-    let hash = T.pack . show . hashWith MD5 $ mconcat
-               [ UTF8.fromString $ show time
-               , UTF8.fromText $ render Nothing main
-               ]
-    pure $ mconcat [ "<", hash, "> <", hash, ">" ]
+  trailerID <- if reproduciblePDF
+    then do
+      time <- getPOSIXTime
+      let hash = T.pack . show . hashWith MD5 $ mconcat
+                 [ UTF8.fromString $ show time
+                 , UTF8.fromText $ render Nothing main
+                 ]
+      pure $ Just $ mconcat [ "<", hash, "> <", hash, ">" ]
+    else pure Nothing
   -- we need a default here since lang is used in template conditionals
   let hasStringValue x = isJust (getField x metadata :: Maybe (Doc Text))
   let geometryFromMargins = mconcat $ intersperse ("," :: Doc Text) $
@@ -247,6 +243,7 @@ pandocToLaTeX options (Pandoc meta blocks) = do
                   defField "documentclass" documentClass $
                   defField "verbatim-in-note" (stVerbInNote st) $
                   defField "tables" (stTable st) $
+                  defField "deferred-notes" (stDeferredNoteNum st > 0) $
                   defField "multirow" (stMultiRow st) $
                   defField "cancel" (stCancel st) $
                   defField "strikeout" (stStrikeout st) $
@@ -297,9 +294,7 @@ pandocToLaTeX options (Pandoc meta blocks) = do
                         | not (T.null ds) && T.all isDigit ds
                           -> resetField "papersize" ("a" <> ds)
                       _   -> id) .
-                  (if reproduciblePDF
-                    then defField "pdf-trailer-id" trailerID
-                    else id) $
+                  maybe id (defField "pdf-trailer-id") trailerID $
                   (if not (null (pdfStandards pdfStd)) || isJust (pdfVersion pdfStd)
                     then resetField "pdfstandard" $ MapVal $ Context $ M.fromList
                            [ ("standards", ListVal $ map (SimpleVal . literal) (pdfStandards pdfStd))
@@ -329,10 +324,7 @@ pandocToLaTeX options (Pandoc meta blocks) = do
         $ defField "latex-dir-rtl"
            ((render Nothing <$> getField "dir" context) ==
                Just ("rtl" :: Text)) context
-  return $ render colwidth $
-    case writerTemplate options of
-       Nothing  -> main
-       Just tpl -> renderTemplate tpl context'
+  return $ renderWithTemplate options context' main
 
 -- Commas in title-meta need to be put in braces; see #10501
 escapeCommas :: Text -> Text
@@ -774,12 +766,12 @@ defListItemToLaTeX (term, defs) = do
     modify $ \s -> s{ stInItem = True }
     term' <- withExternalNotes $ inlineListToLaTeX term
     modify $ \s -> s{ stInItem = False }
-    -- put braces around term if it contains an internal link,
-    -- since otherwise we get bad bracket interactions: \item[\hyperref[..]
-    let isInternalLink (Link _ _ (src,_))
+    -- put braces around term if it contains an internal link or an =:
+    let needsBraces (Link _ _ (src,_))
           | Just ('#', _) <- T.uncons src = True
-        isInternalLink _                  = False
-    let term'' = if any isInternalLink term
+        needsBraces (Str t) = T.any (=='=') t
+        needsBraces _ = False
+    let term'' = if any needsBraces term
                     then braces term'
                     else term'
     def'  <- case concat defs of
@@ -809,21 +801,19 @@ sectionHeader classes ident level lst = do
   let unnumbered = "unnumbered" `elem` classes
   let unlisted = "unlisted" `elem` classes
   txt <- inlineListToLaTeX lst
-  plain <- stringToLaTeX TextString $ T.concat $ map stringify lst
+  plain <- stringToLaTeX TextString $ stringifyInlines lst
   let removeInvalidInline (Note _)             = []
       removeInvalidInline (Span (id', _, _) _) | not (T.null id') = []
       removeInvalidInline Image{}            = []
       removeInvalidInline x                    = [x]
   let lstNoNotes = foldr (mappend . (\x -> walkM removeInvalidInline x)) mempty lst
-  txtNoNotes <- inlineListToLaTeX lstNoNotes
-  txtNoLinksNoNotes <- inlineListToLaTeX (removeLinks lstNoNotes)
   -- footnotes in sections don't work (except for starred variants)
   -- unless you specify an optional argument:
   -- \section[mysec]{mysec\footnote{blah}}
   optional <- if unnumbered || lstNoNotes == lst || null lstNoNotes
                  then return empty
                  else
-                   return $ brackets txtNoNotes
+                   brackets <$> inlineListToLaTeX lstNoNotes
   let contents = if render Nothing txt == plain
                     then braces txt
                     else braces (text "\\texorpdfstring"
@@ -862,45 +852,46 @@ sectionHeader classes ident level lst = do
   lab <- labelFor ident
   let star = if unnumbered then text "*" else empty
   let title = star <> optional <> contents
+  tocEntry <- if unnumbered && not unlisted
+                 then do
+                   txtNoLinksNoNotes <- inlineListToLaTeX
+                                          (removeLinks lstNoNotes)
+                   pure $ "\\addcontentsline{toc}" <>
+                            braces (text sectionType) <>
+                            braces txtNoLinksNoNotes
+                 else pure empty
   return $ if level' > 5
               then txt
               else prefix
                    $$ text ('\\':sectionType) <> title <> lab
-                   $$ if unnumbered && not unlisted
-                         then "\\addcontentsline{toc}" <>
-                                braces (text sectionType) <>
-                                braces txtNoLinksNoNotes
-                         else empty
+                   $$ tocEntry
 
 -- | Convert list of inline elements to LaTeX.
 inlineListToLaTeX :: PandocMonad m
                   => [Inline]  -- ^ Inlines to convert
                   -> LW m (Doc Text)
 inlineListToLaTeX lst = hcat <$>
-  mapM inlineToLaTeX
-    (addKerns . fixLineInitialSpaces . fixInitialLineBreaks $ lst)
-    -- nonbreaking spaces (~) in LaTeX don't work after line breaks,
-    -- so we insert a strut: this is mostly used in verse.
- where fixLineInitialSpaces [] = []
-       fixLineInitialSpaces (LineBreak : Str s : xs)
-         | Just ('\160', _) <- T.uncons s
-         = LineBreak : RawInline "latex" "\\strut " : Str s
-            : fixLineInitialSpaces xs
-       fixLineInitialSpaces (x:xs) = x : fixLineInitialSpaces xs
-       -- We need \hfill\break for a line break at the start
+  mapM inlineToLaTeX (fixInlines . fixInitialLineBreaks $ lst)
+ where -- We need \hfill\break for a line break at the start
        -- of a paragraph. See #5591.
        fixInitialLineBreaks (LineBreak:xs) =
          RawInline (Format "latex") "\\hfill\\break\n" :
            fixInitialLineBreaks xs
        fixInitialLineBreaks xs = xs
-       addKerns [] = []
-       addKerns (Str s : q@Quoted{} : rest)
+       fixInlines [] = []
+       -- nonbreaking spaces (~) in LaTeX don't work after line breaks,
+       -- so we insert a strut: this is mostly used in verse.
+       fixInlines (LineBreak : Str s : xs)
+         | Just ('\160', _) <- T.uncons s
+         = LineBreak : RawInline "latex" "\\strut " : fixInlines (Str s : xs)
+       -- insert a thin space (kern) between adjacent quote characters:
+       fixInlines (Str s : q@Quoted{} : rest)
          | isQuote (T.takeEnd 1 s) =
-           Str s : RawInline (Format "latex") "\\," : addKerns (q:rest)
-       addKerns (q@Quoted{} : Str s : rest)
+           Str s : RawInline (Format "latex") "\\," : fixInlines (q:rest)
+       fixInlines (q@Quoted{} : Str s : rest)
          | isQuote (T.take 1 s) =
-           q : RawInline (Format "latex") "\\," : addKerns (Str s : rest)
-       addKerns (x:xs) = x : addKerns xs
+           q : RawInline (Format "latex") "\\," : fixInlines (Str s : rest)
+       fixInlines (x:xs) = x : fixInlines xs
        isQuote "\"" = True
        isQuote "'" = True
        isQuote "\x2018" = True
@@ -994,9 +985,9 @@ inlineToLaTeX (Code (_,classes,kvs) str) = do
                                    listingsopts) <> "]"
         inNote <- gets stInNote
         when inNote $ modify $ \s -> s{ stVerbInNote = True }
-        let chr = case "!\"'()*,-./:;?@" \\ T.unpack str of
-                       (c:_) -> c
-                       []    -> '!'
+        let chr = fromMaybe '!' $
+                    find (\c -> not (T.any (== c) str))
+                      ("!\"'()*,-./:;?@" :: String)
         let isEscapable '\\' = True
             isEscapable '{'  = True
             isEscapable '}'  = True
@@ -1027,7 +1018,7 @@ inlineToLaTeX (Code (_,classes,kvs) str) = do
                  unless (T.null msg) $ report $ CouldNotHighlight msg
                  rawCode
                Right h -> modify (\st -> st{ stHighlighting = True }) >>
-                          return (text (T.unpack h))
+                          return (literal h)
   -- for soul commands we need to protect VERB in an mbox or we get an error
   -- (see #1294). with regular texttt we don't get an error, but we get
   -- incorrect results if there is a space (see #5529).
@@ -1088,7 +1079,7 @@ inlineToLaTeX (Math _ str)
   | isMathEnv str -- see #9711
   = do setEmptyLine False
        when (needsCancel str) $ modify $ \st -> st{ stCancel = True }
-       pure $ literal str
+       pure $ cr <> literal (trim str) <> cr
 inlineToLaTeX (Math InlineMath str) = do
   setEmptyLine False
   inSoul <- gets stInSoulCommand
@@ -1183,7 +1174,7 @@ inlineToLaTeX (Image attr@(_,_,kvs) description (source, _)) = do
                      Nothing
                        | null description -> pure Nothing
                        | otherwise -> Just <$> stringToLaTeX TextString
-                                                  (stringify description)
+                                              (stringifyInlines description)
   let showDim dir = let d = text (show dir) <> "="
                     in case dimension dir attr of
                          Just (Pixel a)   ->
@@ -1209,7 +1200,8 @@ inlineToLaTeX (Image attr@(_,_,kvs) description (source, _)) = do
                   _ -> ["keepaspectratio"]) <>
                 maybe [] (\x -> ["page=" <> literal x]) (lookup "page" kvs) <>
                 maybe [] (\x -> ["trim=" <> literal x]) (lookup "trim" kvs) <>
-                maybe [] (\x -> ["alt=" <> braces (literal x)]) mbalt <>
+                maybe [] (\x -> ["alt=" <>
+                              braces (hsep $ map literal $ T.words x)]) mbalt <>
                 maybe [] (const ["clip"]) (lookup "clip" kvs)
       options = if null optList
                    then empty
@@ -1229,6 +1221,7 @@ inlineToLaTeX (Image attr@(_,_,kvs) description (source, _)) = do
 inlineToLaTeX (Note contents) = do
   setEmptyLine False
   modify (\s -> s{stInNote = True })
+  numNotesBefore <- gets (length . stNotes)
   contents' <- withExternalNotes $ blockListToLaTeX contents
   modify (\s -> s {stInNote = False })
   let optnl = case reverse contents of
@@ -1247,8 +1240,14 @@ inlineToLaTeX (Note contents) = do
   externalNotes <- gets stExternalNotes
   if externalNotes
      then do
-       modify $ \st -> st{ stNotes = noteContents : stNotes st }
-       return "\\footnotemark{}"
+       -- the marks of notes nested in this one are only set when
+       -- this note's text is typeset, so their texts must come after it
+       notes <- gets stNotes
+       let (nested, rest) = splitAt (length notes - numNotesBefore) notes
+       num <- gets ((+ 1) . stDeferredNoteNum)
+       modify $ \st -> st{ stNotes = nested ++ (num, noteContents) : rest
+                         , stDeferredNoteNum = num }
+       return $ "\\pandocfootnotemark" <> braces (text (show num))
        -- note: a \n before } needed when note ends with a Verbatim environment
        else return $ "\\footnote" <> beamerMark <> braces noteContents
 

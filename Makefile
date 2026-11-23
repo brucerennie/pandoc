@@ -1,7 +1,8 @@
+SHELL:=bash
 VERSION?=$(shell grep '^[Vv]ersion:' pandoc.cabal | awk '{print $$2;}')
 PANDOC_CLI_VERSION?=$(shell grep '^[Vv]ersion:' pandoc-cli/pandoc-cli.cabal | awk '{print $$2;}')
-SOURCEFILES?=$(shell git ls-tree -r main --name-only src pandoc-cli pandoc-server pandoc-lua-engine | grep "\.hs$$")
-PANDOCSOURCEFILES?=$(shell git ls-tree -r main --name-only src | grep "\.hs$$")
+SOURCEFILES?=$(shell git ls-files src pandoc-cli pandoc-server pandoc-lua-engine | grep "\.hs$$")
+PANDOCSOURCEFILES?=$(shell git ls-files src | grep "\.hs$$")
 DOCKERIMAGE=quay.io/benz0li/ghc-musl:9.10
 TIMESTAMP=$(shell date "+%Y%m%d_%H%M")
 LATESTBENCH=$(word 1,$(shell ls -t bench_*.csv 2>/dev/null))
@@ -12,12 +13,12 @@ BASELINECMD=
 else
 BASELINECMD=--baseline $(BASELINE)
 endif
-CABALOPTS?=--disable-optimization -f-export-dynamic -fhttp --ghc-option=-fwrite-ide-info --ghc-option=-fdiagnostics-color=always --ghc-option=-j
 WEBSITE=../../web/pandoc.org
 REVISION?=1
 BENCHARGS?=--csv bench_$(TIMESTAMP).csv $(BASELINECMD) --timeout=6 +RTS -T --nonmoving-gc -RTS $(if $(PATTERN),--pattern "$(PATTERN)",)
 pandoc=$(shell cabal list-bin $(CABALOPTS) pandoc-cli)
 OPTIMIZE_WASM?=1
+ARTIFACTS?=artifacts
 
 all: build test binpath ## build executable and run tests
 .PHONY: all
@@ -60,7 +61,7 @@ flake.lock: flake.nix stack.yaml
 
 quick-stack: ## unoptimized build and tests with stack
 	stack install \
-	  --system-ghc --flag 'pandoc:embed_data_files' \
+	  --system-ghc \
 	  --fast \
 	  --test \
 	  --test-arguments='-j4 --hide-successes --ansi-tricks=false $(TESTARGS)'
@@ -69,6 +70,35 @@ quick-stack: ## unoptimized build and tests with stack
 prerelease: validate-epub README.md fix_spacing check-cabal check-stack checkdocs man check-version-sync check-changelog check-manversion uncommitted_changes ## prerelease checks
 .PHONY: prerelease
 
+release: ## build and download release binaries
+	rm -rf $(ARTIFACTS)
+	mkdir -p $(ARTIFACTS)
+	make -j2 -C . github-build-release circleci-build-release
+	make -j2 -C . sign-macos-arm64 sign-macos-x86_64
+.PHONY: release
+
+github-build-release: ## build Windows and intel mac release candidates on github
+	sh tools/github-build-release.sh $(ARTIFACTS)
+.PHONY: github-build-release
+
+circleci-build-release: ## build linux, arm64 mac, and wasm release candidates on circleci
+	sh tools/circleci-build-release.sh $(ARTIFACTS)
+.PHONY: circleci-build-release
+
+sign-macos-arm64: ## notarize macos arm64 and copy packages to ARTIFACTS
+	unzip -d $(ARTIFACTS) $(ARTIFACTS)/macos-arm64.zip
+	make -C $(ARTIFACTS)/macos-arm64 && \
+		cp $(ARTIFACTS)/macos-arm64/pandoc-*.{pkg,zip} $(ARTIFACTS)/ && \
+		rm -rf $(ARTIFACTS)/macos-arm64 $(ARTIFACTS)/macos-arm64.zip
+.PHONY: sign-macos-arm64
+
+sign-macos-x86_64: ## notarize macos x86 and copy packages to ARTIFACTS
+	unzip -d $(ARTIFACTS) $(ARTIFACTS)/macos-x86_64.zip
+	make -C $(ARTIFACTS)/macos-x86_64 && \
+		cp $(ARTIFACTS)/macos-x86_64/pandoc-*.{pkg,zip} $(ARTIFACTS)/ && \
+		rm -rf $(ARTIFACTS)/macos-x86_64 $(ARTIFACTS)/macos-x86_64.zip
+.PHONY: sign-macos-x86_64
+
 uncommitted_changes:
 	! git diff | grep '.'
 .PHONY: uncommitted_changes
@@ -76,24 +106,36 @@ uncommitted_changes:
 authors:  ## prints unique authors since last released version
 	git log --pretty=format:"%an" $$(git tag -l | grep '[^0-9]' | sort | tail -1)..HEAD | sort | uniq | while read -r; do grep -i -q "^- $$REPLY" AUTHORS.md || echo $$REPLY ; done
 
+LOG.md:
+	git log $$(git describe --tags --abbrev=0)..HEAD --mailmap --reverse --format=format:'  * %s%n    %aN%n%w(78,4,4)%b' | sed -e '/^ *John MacFarlane$$/d' | sed -e 's/  *$$//' > $@
+.PHONY: LOG.md
+
 check-stack:
 	$$HOME/.local/bin/stack-lint-extra-deps --no-exit # check that stack.yaml dependencies are up to date
 	! grep 'git:' stack.yaml # use only released versions
 .PHONY: check-stack
 
-check-cabal: git-files.txt sdist-files.txt
+check-cabal: check-released check-sdist cabal-check
+.PHONY: check-cabal
+
+check-sdist: git-files.txt sdist-files.txt  ## Check that all committed test/data files are in sdist
 	@echo "Checking to see if all committed test/data files are in sdist."
 	diff -u $^
+.PHONY: check-sdist
+
+check-released: ## Check that only released versions of dependencies are used
+	! grep 'git:' cabal.project # use only released versions
+.PHONY: check-released
+
+cabal-check: ## Run cabal check on all packages
 	@for pkg in . pandoc-lua-engine pandoc-server pandoc-cli; \
 	do \
 	     pushd $$pkg ; \
 	     cabal check --ignore=missing-upper-bounds ; \
-	     cabal outdated ; \
+	     cabal outdated --exit-code || exit 1 ; \
 	     popd ; \
 	done
-	! grep 'git:' cabal.project # use only released versions
-
-.PHONY: check-cabal
+.PHONY: cabal-check
 
 check-version-sync:
 	@echo "Checking for match between pandoc and pandoc-cli versions"
@@ -163,7 +205,7 @@ transitive-deps: ## print transitive dependencies
 debpkg: ## create linux package
 	docker run -v `pwd`:/mnt \
                    -v `pwd`/linux/artifacts:/artifacts \
-		   --user $(id -u):$(id -g) \
+		   --user $$(id -u):$$(id -g) \
 		   -e REVISION=$(REVISION) \
        -e CABALOPTS="-f-export-dynamic -fembed_data_files -fserver -flua --enable-executable-static -j4 --ghc-option=-j4 --ghc-option=-split-sections --ghc-option=-optc-Os --ghc-option=-optl=-pthread" \
 		   -w /mnt \
@@ -174,7 +216,7 @@ debpkg: ## create linux package
 		   /mnt/linux/make_artifacts.sh
 .PHONY: debpkg
 
-pandoc-cli/man/pandoc.1: MANUAL.txt man/pandoc.1.before man/pandoc.1.after pandoc.cabal
+pandoc-cli/man/pandoc.1: MANUAL.txt man/pandoc.1.before man/pandoc.1.after pandoc.cabal | build
 	$(pandoc) $< -f markdown -t man -s \
 		--lua-filter man/manfilter.lua \
 		--include-before-body man/pandoc.1.before \
@@ -186,7 +228,7 @@ pandoc-cli/man/pandoc.1: MANUAL.txt man/pandoc.1.before man/pandoc.1.after pando
 		--variable footer="pandoc $(VERSION)" \
 		-o $@
 
-pandoc-cli/man/%.1: doc/%.md pandoc.cabal
+pandoc-cli/man/%.1: doc/%.md pandoc.cabal | build
 	$(pandoc) $< -f markdown -t man -s \
 		--lua-filter man/manfilter.lua \
 		--metadata author="" \
@@ -198,7 +240,7 @@ pandoc-cli/man/%.1: doc/%.md pandoc.cabal
 		-o $@
 
 
-README.md: README.template MANUAL.txt tools/update-readme.lua
+README.md: README.template MANUAL.txt tools/update-readme.lua | build
 	$(pandoc) --lua-filter tools/update-readme.lua \
 	      --reference-location=section -t gfm $< -o $@
 
@@ -218,11 +260,15 @@ download_stats: ## print download stats from GitHub releases
 .PHONY: download_stats
 
 pandoc-templates: ## update pandoc-templates repo
-	rm ../pandoc-templates/default.* ; \
-	cp data/templates/* ../pandoc-templates/ ; \
-	pushd ../pandoc-templates/ && \
+	repo=$$(mktemp -d)/pandoc-templates && \
+	git clone git@github.com:jgm/pandoc-templates $$repo && \
+	git archive HEAD:data/templates | tar -x -C $$repo && \
+	pushd $$repo && \
 	git add * && \
-	git commit -m "Updated templates for pandoc $(VERSION)" && \
+	git commit --allow-empty -m "Updated templates for pandoc $(VERSION)" && \
+	git tag $(VERSION) && \
+	git push && \
+	git push --tags && \
 	popd
 .PHONY: pandoc-templates
 
@@ -237,7 +283,7 @@ update-translations: ## update data/translations from Babel and Polyglossia
 .PHONY: update-translations
 
 validate-docx-golden-tests: ## validate docx golden tests against schema
-	which xmllint || ("xmllint is required" && exit 1)
+	which xmllint || (echo "xmllint is required" && exit 1)
 	test -d ./docx-validator || \
 		(git clone https://github.com/devoidfury/docx-validator && \
 		cd docx-validator && patch -p1 <../wml.xsd.patch)
@@ -245,8 +291,8 @@ validate-docx-golden-tests: ## validate docx golden tests against schema
 .PHONY: validate-docx-golden-tests
 
 validate-docx-golden-tests2: ## validate docx golden tests using OOXMLValidator
-	which dotnet || ("dotnet is required" && exit 1)
-	which jq || ("jq is required" && exit 1)
+	which dotnet || (echo "dotnet is required" && exit 1)
+	which jq || (echo "jq is required" && exit 1)
 	test -d ./OOXML-Validator || \
 		(git clone https://github.com/mikeebowen/OOXML-Validator.git \
 		&& cd OOXML-Validator && dotnet build --configuration=Release)
@@ -256,7 +302,7 @@ validate-docx-golden-tests2: ## validate docx golden tests using OOXMLValidator
 node_modules/.bin/ace:
 	npm install @daisy/ace
 
-validate-epub: node_modules/.bin/ace ## generate an epub and validate it with epubcheck and ace
+validate-epub: node_modules/.bin/ace | build ## generate an epub and validate it with epubcheck and ace
 	which epubcheck || exit 1
 	tmp=$$(mktemp -d) && \
   for epubver in 2 3; do \

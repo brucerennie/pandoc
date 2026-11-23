@@ -36,8 +36,7 @@ import Text.Pandoc.Translations (translateTerm)
 import Text.Pandoc.Readers.LaTeX.Parsing
 import Text.Pandoc.Extensions (extensionEnabled, Extension(..))
 import Text.Pandoc.Parsing (getOption, updateState, getState, notFollowedBy,
-                            manyTill, getInput, setInput, incSourceColumn,
-                            option, many1)
+                            manyTill, option, many1)
 import Data.Char (isDigit)
 import Text.Pandoc.Highlighting (fromListingsLanguage,)
 import Data.Maybe (maybeToList, fromMaybe)
@@ -54,6 +53,7 @@ rawInlineOr name' fallback = do
 
 dolabel :: PandocMonad m => LP m Inlines
 dolabel = do
+  skipopts -- cleveref's \label[type]{key}
   v <- braced
   let refstr = untokenize v
   updateState $ \st ->
@@ -89,19 +89,6 @@ doverb = do
     code . untokenize <$>
       manyTill (notFollowedBy newlineTok >> verbTok marker) (symbol marker)
 
-verbTok :: PandocMonad m => Char -> LP m Tok
-verbTok stopchar = do
-  t@(Tok pos toktype txt) <- anyTok
-  case T.findIndex (== stopchar) txt of
-       Nothing -> return t
-       Just i  -> do
-         let (t1, t2) = T.splitAt i txt
-         TokStream macrosExpanded inp <- getInput
-         setInput $ TokStream macrosExpanded
-                  $ Tok (incSourceColumn pos i) Symbol (T.singleton stopchar)
-                  : tokenize (incSourceColumn pos (i + 1)) (T.drop 1 t2) ++ inp
-         return $ Tok pos toktype t1
-
 listingsLanguage :: [(Text, Text)] -> Maybe Text
 listingsLanguage opts =
   case lookup "language" opts of
@@ -122,7 +109,7 @@ domintinline = do
 
 doinlinecode :: PandocMonad m => [Text] -> LP m Inlines
 doinlinecode classes = do
-  Tok _ Symbol t <- anySymbol
+  Tok _ Symbol t <- sp *> anySymbol
   marker <- case T.uncons t of
               Just (c, ts) | T.null ts -> return c
               _            -> mzero
@@ -282,7 +269,7 @@ charCommands = M.fromList
   , ("{", lit "{")
   , ("}", lit "}")
   , ("-", lit "\x00ad") -- soft hyphen
-  , ("qed", lit "\a0\x25FB")
+  , ("qed", lit "\xa0\x25FB")
   , ("lq", return (str "‘"))
   , ("rq", return (str "’"))
   , ("textquoteleft", return (str "‘"))

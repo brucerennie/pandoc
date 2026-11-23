@@ -41,8 +41,62 @@ testCompareWithOpts opts testName pptxFP nativeFP =
 tests :: [TestTree]
 tests = [ testGroup "basic"
           [ testCompare
+            "charts"
+            "pptx-reader/charts.pptx"
+            "pptx-reader/charts.native"
+          , testCompare
+            "run formatting and hyperlinks"
+            "pptx-reader/formatting.pptx"
+            "pptx-reader/formatting.native"
+          , testCompare
+            "group shapes"
+            "pptx-reader/groups.pptx"
+            "pptx-reader/groups.native"
+          , testCompare
+            "slide number placeholders"
+            "pptx-reader/slide-numbers.pptx"
+            "pptx-reader/slide-numbers.native"
+          , testCompare
             "text extraction"
             "pptx-reader/basic.pptx"
             "pptx-reader/basic.native"
+          , testCompare
+            "text runs and line breaks"
+            "pptx-reader/runs.pptx"
+            "pptx-reader/runs.native"
+          ]
+        , testGroup "slides"
+          [ testCompare
+            "hidden slides"
+            "pptx-reader/hidden.pptx"
+            "pptx-reader/hidden.native"
+          ]
+        , testGroup "tables"
+          [ testCompare
+            "merged cells"
+            "pptx-reader/table-spans.pptx"
+            "pptx-reader/table-spans.native"
+          ]
+        , testGroup "markup compatibility"
+          [ testCompare
+            "equations and alternate content"
+            "pptx-reader/equations.pptx"
+            "pptx-reader/equations.native"
+          ]
+        , testGroup "lists"
+          [ testCompare
+            "inherited bullets, nesting and numbering"
+            "pptx-reader/lists.pptx"
+            "pptx-reader/lists.native"
+          , testCompare
+            "lists written by the pptx writer"
+            "pptx-reader/lists-writer.pptx"
+            "pptx-reader/lists-writer.native"
+          ]
+        , testGroup "notes"
+          [ testCompare
+            "speaker notes"
+            "pptx-reader/notes.pptx"
+            "pptx-reader/notes.native"
           ]
         ]
